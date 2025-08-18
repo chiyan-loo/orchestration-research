@@ -14,7 +14,7 @@ class AgentState(TypedDict):
     retry_count: int
     feedback: str
 
-class ValidationRAG:
+class SelfCorrectingRAG:
     def __init__(self):
         self.llm = ChatOllama(model="mistral:7b")
         self.max_retries = 2
@@ -146,7 +146,7 @@ class ValidationRAG:
 
 
 if __name__ == "__main__":
-    validation_rag = ValidationRAG()
+    validation_rag = SelfCorrectingRAG()
 
     response = validation_rag.generate_response("Hi")
     print(response["content"])

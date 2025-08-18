@@ -22,4 +22,7 @@ class RAG:
             ("human", prompt),
         ]
         ai_msg = self.llm.invoke(messages)
-        return {"content": ai_msg.content, "relevant_docs": relevant_docs}
+        return {
+            "content": ai_msg.content, 
+            "relevant_docs": relevant_docs
+        }
