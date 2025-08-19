@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMe
 from langchain_ollama import ChatOllama
 from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, END
-from vector_store import vector_manager
+from langchain.vectorstores import Chroma
 
 class AgentState(TypedDict):
     query: str
@@ -17,6 +17,16 @@ class AgentState(TypedDict):
 class SelfRAG:
     def __init__(self):
         self.llm = ChatOllama(model="mistral:7b")
+
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+
+        self.vectorstore = Chroma(
+            persist_directory="./chroma_db",
+            embedding_function=self.embeddings
+        )
+
         self.max_retries = 2
         self.workflow = self._build_graph()
     
@@ -47,7 +57,7 @@ class SelfRAG:
     
     def _retrieve_docs(self, state: AgentState) -> AgentState:
         """Retrieve relevant documents from vector database"""
-        relevant_docs = vector_manager.search(state["query"], k=3)
+        relevant_docs = self.vectorstore.similarity_search(state["query"], k=3)
         state["relevant_docs"] = relevant_docs
         state["retry_count"] = 0
         return state
