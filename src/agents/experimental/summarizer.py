@@ -2,7 +2,7 @@ from typing import List
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-class SummarizerAgent:
+class Summarizer:
     def __init__(self, model: str):
         self.llm = ChatOllama(model=model)
 

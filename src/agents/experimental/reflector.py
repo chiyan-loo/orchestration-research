@@ -12,7 +12,7 @@ class ReflectorState(TypedDict):
     improved_response: str
 
 
-class ReflectorAgent:
+class Reflector:
     def __init__(self, model: str):
         self.llm = ChatOllama(
             model=model
@@ -147,7 +147,7 @@ Based on the critique, provide an improved response that addresses all identifie
 
 
 if __name__ == "__main__":
-    reflector = ReflectorAgent(model="mistral:7b")
+    reflector = Reflector(model="mistral:7b")
     
     # Test with a response containing hallucinations
     query = "What is the capital of France?"

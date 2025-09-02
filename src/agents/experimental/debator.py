@@ -14,8 +14,8 @@ class DebateState(TypedDict):
     final_synthesis: str
 
 
-class DebatorAgent:
-    def __init__(self, model: str = "mistral:7b", max_rounds: int = 2):
+class Debator:
+    def __init__(self, model: str, max_rounds: int = 2):
         self.advocate_llm = ChatOllama(model=model)
         self.critic_llm = ChatOllama(model=model)
         self.synthesizer_llm = ChatOllama(model=model)
@@ -167,7 +167,7 @@ Provide a balanced final answer that integrates both perspectives."""
 
 
 if __name__ == "__main__":
-    debate = MultiAgentDebate(max_rounds=2)
+    debate = Debator(max_rounds=2)
     
     query = "Should AI development be regulated?"
     context = "AI capabilities are advancing rapidly with potential benefits and risks."
