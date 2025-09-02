@@ -41,26 +41,26 @@ class ReflectorAgent:
         context = state.get("context", "")
         
         system_prompt = """You are a critical analysis agent. Your job is to identify issues with responses including:
-        1. Hallucinations or unsupported claims
-        2. Information not grounded in the provided context
-        3. Factual inaccuracies or speculation
-        4. Missing important information from the context
-        5. Clarity and coherence issues
+1. Hallucinations or unsupported claims
+2. Information not grounded in the provided context
+3. Factual inaccuracies or speculation
+4. Missing important information from the context
+5. Clarity and coherence issues
 
-        Be thorough but concise in your critique."""
+Be thorough but concise in your critique."""
 
         critique_prompt = f"""
-        Original Query: {query}
+Original Query: {query}
 
-        Current Response: {current_response}
+Current Response: {current_response}
 
-        Available Context: {context}
+Available Context: {context}
 
-        Provide a detailed critique identifying:
-        - Any claims not supported by the context
-        - Missing relevant information from the context
-        - Potential hallucinations or inaccuracies
-        - Areas for improvement in clarity or completeness"""
+Provide a detailed critique identifying:
+- Any claims not supported by the context
+- Missing relevant information from the context
+- Potential hallucinations or inaccuracies
+- Areas for improvement in clarity or completeness"""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -68,8 +68,6 @@ class ReflectorAgent:
         ]
         
         response = self.llm.invoke(messages)
-
-        print("critique: ", response.content)
 
         state["critique"] = response.content.strip()
         
@@ -85,24 +83,24 @@ class ReflectorAgent:
         critique = state.get("critique", "")
         
         system_prompt = """You are a response improvement agent. Using the provided critique, create a better response that:
-        1. Removes hallucinations and unsupported claims
-        2. Grounds all statements in the provided context
-        3. Addresses the issues identified in the critique
-        4. Maintains accuracy and acknowledges limitations
-        5. Improves clarity and completeness
+1. Removes hallucinations and unsupported claims
+2. Grounds all statements in the provided context
+3. Addresses the issues identified in the critique
+4. Maintains accuracy and acknowledges limitations
+5. Improves clarity and completeness
 
-        Only make claims that can be directly supported by the context."""
+Only make claims that can be directly supported by the context."""
 
         improvement_prompt = f"""
-        Original Query: {query}
+Original Query: {query}
 
-        Current Response: {current_response}
+Current Response: {current_response}
 
-        Available Context: {context}
+Available Context: {context}
 
-        Critique: {critique}
+Critique: {critique}
 
-        Based on the critique, provide an improved response that addresses all identified issues while staying grounded in the available context"""
+Based on the critique, provide an improved response that addresses all identified issues while staying grounded in the available context"""
 
         messages = [
             SystemMessage(content=system_prompt),

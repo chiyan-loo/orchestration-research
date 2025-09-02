@@ -70,11 +70,11 @@ class AggregatorAgent:
         
         judge_prompt = f"""Look at these multiple responses to the same query and write a summary of the consistent information. Focus on facts that multiple responses agree on.
 
-        Query: {query}
+Query: {query}
 
-        Responses:
-        {numbered_responses}
-        """
+Responses:
+{numbered_responses}
+"""
 
         messages = [
             SystemMessage(content="You are analyzing responses to identify consistent information."),
@@ -97,12 +97,12 @@ class AggregatorAgent:
         
         synthesis_prompt = f"""Based on these key facts that appeared consistently across multiple responses, create a clear and accurate answer:
 
-        Query: {query}
+Query: {query}
 
-        Key Facts:
-        {analysis}
+Key Facts:
+{analysis}
 
-        Please provide a natural, well-written response that incorporates these facts to directly answer the query."""
+Please provide a natural, well-written response that incorporates these facts to directly answer the query."""
         
         messages = [
             SystemMessage(content="You are creating a final answer based on consistent facts from multiple responses."),
