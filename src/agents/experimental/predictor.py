@@ -6,7 +6,7 @@ class Predictor:
     def __init__(self, model: str):
         self.llm = ChatOllama(model=model)
     
-    def respond(self, query: str, context: str = "") -> str:
+    def generate_response(self, query: str, context: str = "") -> str:
         """
         Generate a response to a query with optional context
         
@@ -37,6 +37,6 @@ if __name__ == "__main__":
     query = "What is the capital of France?"
     context = "France is a country in Western Europe."
     
-    result = agent.respond(query, context)
+    result = agent.generate_response(query, context)
     print(f"Query: {query}")
     print(f"Response: {result}")
