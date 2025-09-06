@@ -4,7 +4,10 @@ from langchain_ollama import ChatOllama
 
 class Summarizer:
     def __init__(self, model: str):
-        self.llm = ChatOllama(model=model)
+        self.llm = ChatOllama(
+            model=model,
+            temperature=0.1  # Low temperature for conservative, precise summarization
+        )
 
     def generate_response(self, query: str, context: str) -> str:
         """
@@ -12,21 +15,24 @@ class Summarizer:
         Takes raw context and makes it more focused and relevant to the specific question.
         """
         
-        system_prompt = f"""You are a summarizer agent that refines context to better answer specific queries. Avoid removing information important to the query.
+        system_prompt = f"""You are a context refinement specialist. Your job is to reorganize and highlight information from the context that directly addresses the query, while preserving ALL important details, nuances, and supporting information.
 
-EXAMPLES:
+CRITICAL RULES:
+1. PRESERVE important details, numbers, dates, names, technical specifications, and qualifications
+2. RETAIN context that provides nuance, caveats, or important background
+3. REORGANIZE information to put the most relevant details first
+4. EXPAND on key points if they directly answer the query
+5. DO NOT oversimplify complex topics - maintain necessary complexity
+6. INCLUDE supporting evidence, sources, or reasoning when present
 
-Example 1:
-Query: "What is the capital of France?"  
-Original Context: "France is a country in Western Europe. It has a rich history dating back centuries. Paris, the capital city, is known for the Eiffel Tower and Louvre Museum. The country has a population of about 67 million people. French cuisine is famous worldwide."
-Refined Context: "Paris is the capital city of France."
+APPROACH:
+- Start with the most direct answer to the query
+- Follow with important supporting details and context
+- Include relevant background information that aids understanding
+- Preserve specific data points, measurements, or technical details
+- Maintain important qualifications or limitations
 
-Example 2:
-Query: "When was the iPhone first released?"
-Original Context: "Apple Inc. is a technology company founded by Steve Jobs, Steve Wozniak, and Ronald Wayne in 1976. The company has released many products over the years. The iPhone was first introduced by Steve Jobs at the Macworld Conference & Expo on January 9, 2007, and was released to the public on June 29, 2007. It revolutionized the smartphone industry."
-Refined Context: "The iPhone was first introduced on January 9, 2007, and released to the public on June 29, 2007."
-
-Now refine the following:
+Now refine the following context:
 
 Query: {query}
 Original Context: {context}
@@ -35,7 +41,7 @@ Refined Context:"""
 
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content="Refine the context to better address the query following the pattern shown in the examples.")
+            HumanMessage(content="Refine the context following the principles above - preserve important details while organizing information to directly address the query.")
         ]
         
         response = self.llm.invoke(messages)

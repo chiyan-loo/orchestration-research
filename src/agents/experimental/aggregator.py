@@ -5,9 +5,12 @@ from langchain_ollama import ChatOllama
 
 class Aggregator:
     def __init__(self, model: str):
-        self.llm = ChatOllama(model=model)
+        self.llm = ChatOllama(
+            model=model, 
+            temperature=0.4 # More consistent with aggregation
+        )
     
-    def aggregate_messages(self, messages: List[str], query: str = "") -> str:
+    def aggregate_messages(self, messages: List[str], query: str) -> str:
         """
         Aggregate multiple messages and generate a singular response based on consistent information
         

@@ -15,7 +15,8 @@ class ReflectorState(TypedDict):
 class Reflector:
     def __init__(self, model: str):
         self.llm = ChatOllama(
-            model=model
+            model=model,
+            temperature=0.4,  # Lower temperature for more focused, accurate responses
         )
         
         self.graph = self._build_graph()
@@ -34,33 +35,49 @@ class Reflector:
 
     def _critique(self, state: ReflectorState) -> ReflectorState:
         """
-        Analyzes the current response for potential issues and hallucinations
+        Analyzes the current response focusing heavily on accuracy and conciseness
         """
         query = state.get("query", "")
         current_response = state.get("current_response", "")
         context = state.get("context", "")
         
-        system_prompt = """You are a critical analysis agent. Your job is to identify issues with responses including:
-1. Hallucinations or unsupported claims
-2. Information not grounded in the provided context
-3. Factual inaccuracies or speculation
-4. Missing important information from the context
-5. Clarity and coherence issues
+        system_prompt = """You are a precision-focused critic. Your PRIMARY goals are:
+1. ELIMINATE HALLUCINATIONS: Flag any claim not directly supported by context
+2. MAXIMIZE CONCISENESS: Identify unnecessary words, redundancy, and verbosity
+3. ENSURE ACCURACY: Verify every factual claim against the context
+4. FOCUS ON RELEVANCE: Remove information not directly answering the query
 
-Be thorough but concise in your critique."""
+Be ruthless in identifying what should be removed or edited."""
 
         critique_prompt = f"""
-Original Query: {query}
+Query: {query}
 
 Current Response: {current_response}
 
-Available Context: {context}
+Context: {context if context else "NO CONTEXT PROVIDED - All claims must be general knowledge only"}
 
-Provide a detailed critique identifying:
-- Any claims not supported by the context
-- Missing relevant information from the context
-- Potential hallucinations or inaccuracies
-- Areas for improvement in clarity or completeness"""
+CRITICAL ANALYSIS REQUIRED:
+
+HALLUCINATION CHECK:
+- List every factual claim in the response
+- Mark which claims are NOT supported by the context
+- Identify any speculation or assumptions
+
+CONCISENESS AUDIT:
+- Identify redundant phrases or repetitive information  
+- Flag unnecessarily complex language that could be simplified
+- Find sentences that add no value
+
+ACCURACY VERIFICATION:
+- Check every number, date, or specific fact against the context
+- Identify any contradictions with the provided context
+- Flag vague or imprecise language that should be more specific
+
+RELEVANCE FILTER:
+- Mark information that doesn't directly answer the query
+- Identify tangential details that should be removed
+
+FINAL DIRECTIVE: Focus on what to CUT and SIMPLIFY, not what to add."""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -75,32 +92,50 @@ Provide a detailed critique identifying:
 
     def _improve(self, state: ReflectorState) -> ReflectorState:
         """
-        Generates an improved response based on the critique
+        Creates a more concise and accurate response by removing/fixing issues
         """
         query = state.get("query", "")
         current_response = state.get("current_response", "")
         context = state.get("context", "")
         critique = state.get("critique", "")
         
-        system_prompt = """You are a response improvement agent. Using the provided critique, create a better response that:
-1. Removes hallucinations and unsupported claims
-2. Grounds all statements in the provided context
-3. Addresses the issues identified in the critique
-4. Maintains accuracy and acknowledges limitations
-5. Improves clarity and completeness
+        system_prompt = """You are a precision editor focused on accuracy.
 
-Only make claims that can be directly supported by the context."""
+CORE PRINCIPLES:
+- SHORTER IS BETTER: Cut unnecessary words ruthlessly
+- ONLY VERIFIABLE FACTS: If it's not in the context, don't claim it
+- DIRECT ANSWERS: Get straight to the point
+- NO SPECULATION: Remove uncertain or assumptive language
+- SIMPLE LANGUAGE: Use the clearest, most direct phrasing
+
+DO NOT:
+- Add new information not in the original response
+- Include background information unless directly relevant
+- Use hedging language like "it seems" or "possibly"
+
+DO:
+- Remove unsupported claims entirely
+- Shorten wordy explanations
+- Use precise, specific language
+- Answer the query directly and stop
+- Acknowledge limitations clearly when context is insufficient"""
 
         improvement_prompt = f"""
-Original Query: {query}
+Query: {query}
 
-Current Response: {current_response}
+Original Response: {current_response}
 
-Available Context: {context}
+Context: {context if context else "NO CONTEXT - Use only general knowledge"}
 
 Critique: {critique}
 
-Based on the critique, provide an improved response that addresses all identified issues while staying grounded in the available context"""
+Create a more accurate response by:
+1. Removing all unsupported claims identified in the critique
+2. Cutting unnecessary words and redundancy
+3. Using only information that directly answers the query
+4. Making language more precise and direct
+
+TARGET: The improved response should be more concise while being more accurate."""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -122,7 +157,7 @@ Based on the critique, provide an improved response that addresses all identifie
             context: Available context from retrieval or previous agents
             
         Returns:
-            Improved response with reduced hallucinations
+            Improved response with reduced hallucinations and increased conciseness
         """
         result = self.graph.invoke({
             "query": query,
@@ -149,10 +184,12 @@ Based on the critique, provide an improved response that addresses all identifie
 if __name__ == "__main__":
     reflector = Reflector(model="mistral:7b")
     
-    # Test with a response containing hallucinations
+    # Test with a verbose response containing hallucinations
     query = "What is the capital of France?"
-    current_response = "The capital of France is Paris. Paris has a population of 15 million people and was founded in 1889."
+    current_response = """The capital of France is Paris, which is a beautiful and historic city located in the northern part of the country. Paris has a population of approximately 15 million people in the greater metropolitan area and was founded in 1889 as a major European capital. The city is known for its many attractions including the Eiffel Tower, which was built for the World's Fair, and numerous museums and cultural sites that attract millions of visitors each year."""
     context = "Paris is the capital and most populous city of France. The city has a population of approximately 2.1 million residents."
     
     improved_response = reflector.generate_response(query, current_response, context)
+    print(f"Original Response Length: {len(current_response)} characters")
     print(f"Improved Response: {improved_response}")
+    print(f"Improved Response Length: {len(improved_response)} characters")

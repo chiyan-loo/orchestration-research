@@ -14,11 +14,11 @@ class DebateState(TypedDict):
     final_synthesis: str
 
 
-class Debator:
+class Debater:
     def __init__(self, model: str, max_rounds: int = 2):
         self.advocate_llm = ChatOllama(model=model)
         self.critic_llm = ChatOllama(model=model)
-        self.synthesizer_llm = ChatOllama(model=model)
+        self.synthesizer_llm = ChatOllama(model=model, temperature=0.5)
         self.max_rounds = max_rounds
         self.graph = self._build_graph()
     
@@ -98,8 +98,6 @@ class Debator:
             context_parts.append(f"Advocate: {state['advocate_messages'][-1]}")
         if state["critic_messages"]:
             context_parts.append(f"Critic: {state['critic_messages'][-1]}")
-
-        print(context_parts)
         
         return "\n\n".join(context_parts)
     
@@ -134,16 +132,16 @@ class Debator:
             if i < len(state["critic_messages"]):
                 debate_content += f"Critic: {state['critic_messages'][i]}\n\n"
         
-        prompt = f"""Synthesize this multi-agent debate into a comprehensive response.
+        prompt = f"""Synthesize this multi-agent debate into a concise response that directly answers the query.
 
 Query: {state['query']}
 
 Debate Content: {debate_content}
 
-Provide a balanced final answer that integrates both perspectives."""
+Provide a balanced final answer that integrates consistent information from both perspectives."""
         
         messages = [
-            SystemMessage(content="You synthesize multi-agent debates into comprehensive responses."),
+            SystemMessage(content="You synthesize multi-agent debates into concise responses."),
             HumanMessage(content=prompt)
         ]
         
@@ -167,7 +165,7 @@ Provide a balanced final answer that integrates both perspectives."""
 
 
 if __name__ == "__main__":
-    debate = Debator(max_rounds=2)
+    debate = Debater(max_rounds=2)
     
     query = "Should AI development be regulated?"
     context = "AI capabilities are advancing rapidly with potential benefits and risks."
