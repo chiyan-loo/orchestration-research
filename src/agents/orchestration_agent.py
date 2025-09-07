@@ -11,11 +11,11 @@ from langchain_openai import ChatOpenAI
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
 
-from reflector import Reflector
-from aggregator import Aggregator
-from debater import Debater
-from predictor import Predictor
-from summarizer import Summarizer
+from .reflector import Reflector
+from .aggregator import Aggregator
+from .debater import Debater
+from .predictor import Predictor
+from .summarizer import Summarizer
 
 class WorkflowPlan(BaseModel):
     reasoning: str
@@ -186,7 +186,7 @@ PREFERRED COMPLEX WORKFLOW PATTERNS:
 - [["debater", "debater", "debater", "debater"], "aggregator", "reflector"]
 - ["summarizer", ["predictor", "debater", "debater"], "aggregator"]
 
-AVOID SIMPLE PATTERNS like ["predictor"] or ["predictor", "reflector"] unless the query is trivial."""
+AVOID SIMPLE PATTERNS unless the query is trivial."""
 
         structured_llm = self.llm.with_structured_output(WorkflowPlan)
         

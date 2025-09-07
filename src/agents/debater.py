@@ -48,7 +48,7 @@ class Debater:
             Context: {state['context']}
             Topic: {state['query']}
             
-            Present your initial position in 2-3 paragraphs."""
+            Present your initial position in 1-2 paragraphs."""
         else:
             recent_messages = self._get_recent_context(state)
             prompt = f"""You are an Advocate. Present strong supporting arguments.
@@ -73,7 +73,7 @@ class Debater:
             Context: {state['context']}
             Topic: {state['query']}
             
-            Present your critical analysis in 2-3 paragraphs."""
+            Present your critical analysis in 1-2 paragraphs."""
         else:
             recent_messages = self._get_recent_context(state)
             prompt = f"""You are a Critic. Identify flaws and present counterarguments.
@@ -132,13 +132,13 @@ class Debater:
             if i < len(state["critic_messages"]):
                 debate_content += f"Critic: {state['critic_messages'][i]}\n\n"
         
-        prompt = f"""Synthesize this multi-agent debate into a concise response that directly answers the query.
+        prompt = f"""Synthesize this multi-agent debate into a concise, one sentence response that directly answers the query.
 
 Query: {state['query']}
 
 Debate Content: {debate_content}
 
-Provide a balanced final answer that integrates consistent information from both perspectives."""
+Provide a short but balanced final answer that integrates consistent information from both perspectives."""
         
         messages = [
             SystemMessage(content="You synthesize multi-agent debates into concise responses."),

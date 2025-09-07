@@ -31,7 +31,7 @@ class Aggregator:
         ])
         
         # Create aggregation prompt
-        aggregation_prompt = f"""Analyze these multiple messages and provide a single, coherent response that answers the specific query based on consistent information found across the messages.
+        aggregation_prompt = f"""Analyze these multiple messages and provide a single, ONE SENTENCE response that directly answers the specific query based on consistent information found across the messages.
 
 Query: {query}
 
@@ -42,8 +42,7 @@ Instructions:
 1. Identify information that appears consistently across multiple messages
 2. Focus on facts and key points that are mentioned or supported by more than one message
 3. Ignore contradictory or outlier information that only appears in one message
-4. Synthesize the consistent information into a clear, direct answer to the query
-5. If there's insufficient consistent information to answer the query, state this clearly
+4. Synthesize the consistent information into a clear, direct, one-sentence answer to the query
 
 Provide your aggregated response:"""
 

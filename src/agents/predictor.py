@@ -17,7 +17,7 @@ class Predictor:
         Returns:
             Generated response string extracted from XML tags
         """
-        system_prompt = f"""You are an analytical agent that uses step-by-step reasoning to answer queries accurately.
+        system_prompt = f"""You are an analytical agent that uses step-by-step reasoning to answer queries directly and accurately.
 
 Context: {context if context else "No specific context provided"}
 
