@@ -4,7 +4,7 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 
 
-class ReflectorState(TypedDict):
+class RefinerState(TypedDict):
     query: str
     current_response: str
     context: str
@@ -12,7 +12,7 @@ class ReflectorState(TypedDict):
     improved_response: str
 
 
-class Reflector:
+class Refiner:
     def __init__(self, model: str):
         self.llm = ChatOllama(
             model=model,
@@ -22,7 +22,7 @@ class Reflector:
         self.graph = self._build_graph()
 
     def _build_graph(self):
-        workflow = StateGraph(ReflectorState)
+        workflow = StateGraph(RefinerState)
         
         workflow.add_node("critique", self._critique)
         workflow.add_node("improve", self._improve)
@@ -33,7 +33,7 @@ class Reflector:
         
         return workflow.compile()
 
-    def _critique(self, state: ReflectorState) -> ReflectorState:
+    def _critique(self, state: RefinerState) -> RefinerState:
         """
         Analyzes the current response focusing heavily on accuracy and conciseness
         """
@@ -90,7 +90,7 @@ FINAL DIRECTIVE: Focus on what to CUT and SIMPLIFY, not what to add."""
         
         return state
 
-    def _improve(self, state: ReflectorState) -> ReflectorState:
+    def _improve(self, state: RefinerState) -> RefinerState:
         """
         Creates a more concise and accurate response by removing/fixing issues
         """
@@ -182,7 +182,7 @@ TARGET: The improved response should be more concise while being more accurate."
 
 
 if __name__ == "__main__":
-    reflector = Reflector(model="mistral:7b")
+    reflector = Refiner(model="mistral:7b")
     
     # Test with a verbose response containing hallucinations
     query = "What is the capital of France?"

@@ -63,7 +63,6 @@ IMPORTANT: Always include both reasoning and answer sections. The answer should 
         
         if answer_match:
             answer = answer_match.group(1).strip()
-            print(f"Extracted answer: {answer}")
             return answer
         else:
             print("Warning: No <answer> tags found, returning full response")
