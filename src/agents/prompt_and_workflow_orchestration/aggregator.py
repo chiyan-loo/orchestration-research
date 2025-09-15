@@ -49,7 +49,7 @@ Provide your aggregated response:"""
         
         # Generate aggregated response
         messages_for_llm = [
-            SystemMessage(content="You are an expert at analyzing multiple pieces of information and identifying consistent patterns to create accurate, synthesized responses."),
+            SystemMessage(content=self.prompt),
             HumanMessage(content=aggregation_prompt)
         ]
         
@@ -59,7 +59,7 @@ Provide your aggregated response:"""
 
 # Example usage
 if __name__ == "__main__":
-    aggregator = Aggregator(model="mistral:7b")
+    aggregator = Aggregator(model="mistral:7b", prompt="You are an expert at analyzing multiple pieces of information and identifying consistent patterns to create accurate, synthesized responses.")
     
     sample_messages = [
         "Paris is the capital of France and has about 2.1 million people.",

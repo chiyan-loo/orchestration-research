@@ -68,7 +68,7 @@ class AgentState(TypedDict):
     context: str
     workflow_plan: Dict[str, List[str]]
 
-class OrchestrationAgent():
+class WorkflowOrchestrationAgent():
     def __init__(self, planner_llm, sub_llm: str, max_context_length: int = 4000):
 
         self.max_context_length = max_context_length
@@ -327,7 +327,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         """Save workflow as PNG image"""
         png_data = self.graph.get_graph().draw_mermaid_png()
         
-        with open("orchestration_workflow.png", "wb") as f:
+        with open("workflow_orchestration_workflow.png", "wb") as f:
             f.write(png_data)
 
 
@@ -339,11 +339,13 @@ if __name__ == "__main__":
         temperature=0.7
     )
 
-    orchestration_agent = OrchestrationAgent(
+    orchestration_agent = WorkflowOrchestrationAgent(
         sub_llm="mistral:7b", 
         planner_llm=llm,
     )
-    
+
+    orchestration_agent.save_workflow_image()
+
     response = orchestration_agent.generate_response(
         query="How many field goals did the Lions score?",
         context="""To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007"""
