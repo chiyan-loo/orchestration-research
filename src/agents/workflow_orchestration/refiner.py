@@ -49,7 +49,7 @@ class Refiner:
 
 Be ruthless in identifying what should be removed or edited."""
 
-        critique_prompt = f"""
+        critique_prompt = f"""Thoroughly critique the current response given the query and context. Provide a thorough list potential flaws of the current response and make suggestions.
 Query: {query}
 
 Current Response: {current_response}

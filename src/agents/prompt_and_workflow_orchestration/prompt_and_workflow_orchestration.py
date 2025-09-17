@@ -62,12 +62,17 @@ class WorkflowPlan(BaseModel):
         
         return v
 
+class RefinerPrompts(BaseModel):
+    """Structure for refiner sub-agent prompts"""
+    critic: str = Field(description="Custom prompt for the critic sub-agent", default="")
+    editor: str = Field(description="Custom prompt for the editor sub-agent", default="")
+
 class CustomPrompts(BaseModel):
     """Structure for custom prompts for each agent type"""
     summarizer: str = Field(description="Custom comprehensive prompt for summarizer agent", default="")
     predictor: str = Field(description="Custom comprehensive prompt for predictor agent", default="")
     debater: str = Field(description="Custom comprehensive prompt for debater agent", default="")
-    refiner: str = Field(description="Custom comprehensive prompt for refiner agent", default="")
+    refiner: RefinerPrompts = Field(description="Custom prompts for refiner sub-agents", default_factory=RefinerPrompts)
 
 class AgentState(TypedDict):
     messages: List[BaseMessage]
@@ -211,6 +216,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
     def _optimize_prompts(self, state: AgentState) -> AgentState:
         """
         Generate custom prompts for each agent type based on the query, context, and workflow plan
+        Enhanced to handle multi-agent systems like refiner
         """
         query = state.get("query", "")
         context = state.get("context", "")
@@ -243,41 +249,52 @@ Analyze the specific query-context combination to create bespoke reasoning appro
 AGENT TYPES AND REASONING REQUIREMENTS:
 
 1. SUMMARIZER: Condenses and clarifies context to make it more relevant to the query
-   - REQUIRES CUSTOM REASONING: Design a reasoning approach that directly addresses how this specific context should be filtered and organized for this particular query
-   - Consider: What makes information relevant here? What patterns exist? What hierarchies matter?
-   - Example reasoning styles to adapt: "Contextual Relevance Mapping", "Domain-Specific Filtering", "Query-Aligned Information Architecture"
+- REQUIRES CUSTOM REASONING: Design a reasoning approach that directly addresses how this specific context should be filtered and organized for this particular query
+- Consider: What makes information relevant here? What patterns exist? What hierarchies matter?
+- Example reasoning styles to adapt: "Contextual Relevance Mapping", "Domain-Specific Filtering", "Query-Aligned Information Architecture"
 
 2. PREDICTOR: Provides direct, factual responses based on available information  
-   - REQUIRES CUSTOM REASONING: Create a reasoning methodology that matches how conclusions should be drawn from this specific evidence base for this query type
-   - Consider: What logical path fits this domain? What evidence patterns exist? What inference style is most reliable here?
-   - Example reasoning styles to adapt: "Evidence Synthesis Chains", "Domain-Specific Logic Flows", "Query-Pattern Matching Logic"
+- REQUIRES CUSTOM REASONING: Create a reasoning methodology that matches how conclusions should be drawn from this specific evidence base for this query type
+- Consider: What logical path fits this domain? What evidence patterns exist? What inference style is most reliable here?
+- Example reasoning styles to adapt: "Evidence Synthesis Chains", "Domain-Specific Logic Flows", "Query-Pattern Matching Logic"
 
 3. DEBATER: Explores multiple perspectives and approaches complex reasoning
-   - NO EXPLICIT REASONING REQUIRED: Focus on comprehensive perspective coverage and nuanced analysis
-   - Should provide multiple viewpoints, handle complexity, and offer balanced analysis
-   - Present final conclusions without showing the thinking process
+- NO EXPLICIT REASONING REQUIRED: Focus on comprehensive perspective coverage and nuanced analysis
+- Should provide multiple viewpoints, handle complexity, and offer balanced analysis
+- Present final conclusions without showing the thinking process
 
-4. REFINER: Improves the quality, clarity, and accuracy of responses
-   - NO EXPLICIT REASONING REQUIRED: Focus on enhancement and improvement
-   - Should improve clarity, add missing elements, and optimize presentation
-   - Present final refined version without showing the improvement process
+4. REFINER: Multi-agent system that improves response quality through critique and editing
+- REQUIRES TWO SPECIALIZED PROMPTS for its sub-agents:
 
-5. AGGREGATOR: Synthesizes multiple responses into a coherent final answer
-   - SKIP PROMPT GENERATION: Do not generate a custom prompt for this agent
-   - This agent uses built-in aggregation logic and does not need custom prompting
+A) CRITIC SUB-AGENT: Identifies issues and potential improvements in responses
+    - Role: Analyze responses for accuracy, relevance, clarity, and completeness issues
+    - Should focus on: hallucinations, unsupported claims, irrelevant information, unclear statements
+    - Consider query type: What specific quality issues are most likely for this type of query?
+    - Consider context: What domain-specific accuracy concerns should be prioritized?
+    - Output: Specific, actionable critique points
+
+B) EDITOR SUB-AGENT: Implements improvements based on critique
+    - Role: Revise and improve responses while addressing identified issues
+    - Should focus on: accuracy enhancement, clarity improvement, relevance optimization
+    - Consider query requirements: What makes a response truly effective for this specific query?
+    - Consider context domain: What expertise or terminology is needed?
+    - Output: Improved, polished final response
 
 CUSTOM REASONING GENERATION INSTRUCTIONS:
 - Analyze this specific query's logical structure and information needs
 - Examine the context's unique characteristics (domain, complexity, relationships, gaps)
 - Design reasoning approaches that are precisely tailored to this query-context pair
-- Create reasoning methodologies that wouldn't necessarily work for other queries but are perfect for this one
+- For refiner sub-agents: Create complementary prompts where critic identifies domain-specific issues and editor applies domain-specific improvements
 - Consider what kind of thinking process would be most effective given the specific information patterns and query requirements
 - Make the reasoning approach feel natural and purpose-built for this exact scenario
 
 PROMPT GENERATION GUIDELINES:
 - Each prompt should be specific to this query and context combination
-- For summarizer and predictor: Include detailed instructions for their custom reasoning approach
-- Ensure the reasoning approaches for summarizer and predictor are complementary but distinct
+- For each agent: Include detailed instructions for their custom reasoning approach
+- For refiner: Create two distinct, complementary prompts that work together effectively
+* Critic prompt should focus on identifying issues specific to this query type and domain
+* Editor prompt should focus on making improvements that enhance response quality for this specific task
+- Ensure the reasoning approaches are complementary but distinct
 - Use domain-specific terminology and concepts relevant to the query
 - Consider the unique challenges and opportunities this specific query-context presents
 - Consider the role each agent plays in the overall workflow
@@ -293,18 +310,26 @@ Generate custom prompts that implement reasoning approaches specifically designe
         
         response = structured_llm.invoke(prompt_messages)
         
+        # Structure the custom prompts to handle the nested refiner structure
         custom_prompts = {
             "summarizer": response.summarizer,
             "predictor": response.predictor,
             "debater": response.debater,
-            "aggregator": response.aggregator,
-            "refiner": response.refiner
+            "refiner": {
+                "critic": response.refiner.critic,
+                "editor": response.refiner.editor
+            }
         }
         
         print("Generated custom prompts:")
         for agent_type, prompt in custom_prompts.items():
             if agent_type in all_agents:
-                print(f"  {agent_type}: {prompt[:100]}...")
+                if agent_type == "refiner":
+                    print(f"  {agent_type}:")
+                    print(f"    critic: {prompt['critic'][:100]}...")
+                    print(f"    editor: {prompt['editor'][:100]}...")
+                else:
+                    print(f"  {agent_type}: {prompt[:100]}...")
         
         state["custom_prompts"] = custom_prompts
         return state
@@ -357,6 +382,7 @@ Generate custom prompts that implement reasoning approaches specifically designe
             custom_prompt = custom_prompts.get(agent_name, "")
             
             if agent_name == "predictor":
+                print(f"    Using custom {agent_name} prompt: {custom_prompt[:50]}...")
                 response = self.predictor.generate_response(
                     query=query, 
                     context=context,
@@ -391,8 +417,7 @@ Generate custom prompts that implement reasoning approaches specifically designe
         
         # Simple loop through end agents (aggregator and/or refiner)
         for agent_name in end_agents:
-            print(f"  Running {agent_name} with custom prompt")
-            custom_prompt = custom_prompts.get(agent_name, "")
+            print(f"  Running {agent_name} with custom prompt(s)")
             
             if agent_name == "aggregator":
                 # Extract content from AI messages for aggregation
@@ -419,10 +444,20 @@ Generate custom prompts that implement reasoning approaches specifically designe
                         current_response = msg.content
                         break
                 
+                # Get custom prompts for refiner sub-agents
+                refiner_prompts = custom_prompts.get("refiner", {})
+                critic_prompt = refiner_prompts.get("critic", "")
+                editor_prompt = refiner_prompts.get("editor", "")
+                
+                print(f"    Using custom critic prompt: {critic_prompt[:50]}...")
+                print(f"    Using custom editor prompt: {editor_prompt[:50]}...")
+                
                 improved_response = self.refiner.generate_response(
                     query=query,
                     current_response=current_response,
                     context=context,
+                    critic_system_prompt=critic_prompt,
+                    editor_system_prompt=editor_prompt
                 )
                 
                 messages.append(AIMessage(content=improved_response))
