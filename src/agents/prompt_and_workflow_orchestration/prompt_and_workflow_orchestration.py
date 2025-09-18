@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMe
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
-from pydantic import BaseModel, field_validator, Field
+from pydantic import BaseModel, field_validator, Field, create_model
 import os
 from dotenv import load_dotenv, find_dotenv
 from langchain_openai import ChatOpenAI
@@ -62,6 +62,11 @@ class WorkflowPlan(BaseModel):
         
         return v
 
+class DebaterPrompts(BaseModel):
+    """Structure for debater sub-agent prompts"""
+    advocate: str = Field(description="Custom prompt for the advocate sub-agent", default="")
+    critic: str = Field(description="Custom prompt for the critic sub-agent", default="")
+
 class RefinerPrompts(BaseModel):
     """Structure for refiner sub-agent prompts"""
     critic: str = Field(description="Custom prompt for the critic sub-agent", default="")
@@ -71,7 +76,7 @@ class CustomPrompts(BaseModel):
     """Structure for custom prompts for each agent type"""
     summarizer: str = Field(description="Custom comprehensive prompt for summarizer agent", default="")
     predictor: str = Field(description="Custom comprehensive prompt for predictor agent", default="")
-    debater: str = Field(description="Custom comprehensive prompt for debater agent", default="")
+    debater: DebaterPrompts = Field(description="Custom prompts for debater sub-agents", default_factory=DebaterPrompts)
     refiner: RefinerPrompts = Field(description="Custom prompts for refiner sub-agents", default_factory=RefinerPrompts)
 
 class AgentState(TypedDict):
@@ -79,7 +84,7 @@ class AgentState(TypedDict):
     query: str
     context: str
     workflow_plan: Dict[str, List[str]]
-    custom_prompts: Dict[str, str]
+    custom_prompts: Dict[str, Union[str, Dict[str, str]]]
 
 class PromptAndWorkflowOrchestrationAgent():
     def __init__(self, planner_llm, sub_llm: str, max_context_length: int = 4000):
@@ -156,16 +161,16 @@ PHASE 1 - BEGINNING (Context Preparation):
 
 PHASE 2 - MIDDLE (Core Analysis):
 - ONLY "predictor" and/or "debater" allowed
-- Use "predictor" for discrete reasoning, factual verification, computational problems, direct information extraction
-- Use "debater" for multi-hop reasoning, complex inference chains, ambiguous contexts, subjective analysis
-- STRONGLY PREFER multiple agents (2-5) for comprehensive analysis
+- Use multiple "predictor" for discrete reasoning, factual verification, computational problems, direct information extraction
+- Use multiple "debater" for multi-hop reasoning, complex inference chains, ambiguous contexts, subjective analysis
+- STRONGLY PREFER multiple agents (3-5) for comprehensive analysis
 - Use both predictor and debater for queries requiring both factual extraction and inference
 - Single agent only for trivial factual lookups with zero ambiguity
 
 PHASE 3 - END (Synthesis & Quality):
 - ONLY "aggregator" and/or "refiner" allowed  
 - MANDATORY "aggregator" when middle phase has multiple agents
-- Use "refiner" to improve quality of generated responses while trading cost and latency
+- Use "refiner" to improve quality of generated responses and reduce hallucinations
 - Skip only when single middle agent produces definitive factual answer
 
 REQUIRED REASONING FORMAT:
@@ -174,18 +179,13 @@ REASONING:
 1. CONTEXT-QUERY INTERACTION: [Analyze how context complexity affects query difficulty - look for multi-hop reasoning, entity disambiguation, temporal relationships, cross-referencing needs]
 2. COMPLEXITY INDICATORS: [Identify specific complexity factors. A query is COMPLEX if it requires: Connecting multiple pieces of information, Making inferences beyond what's directly stated, Handling ambiguous or contradictory details]
 3. MULTI-AGENT JUSTIFICATION: [Explain why multiple agents will provide better coverage than single agent - different reasoning approaches, error-checking, comprehensive analysis]
-4. AGENT SELECTION STRATEGY: [Justify specific agent choices - why predictor vs debater, how many of each, what unique value each brings]
+4. AGENT SELECTION STRATEGY: [Justify specific agent choices - why predictor vs debater, how many, what unique value each brings]
 5. SYNTHESIS REQUIREMENTS: [Explain aggregation needs and quality improvement through refinement]
 6. WORKFLOW COMPLEXITY DECISION: [Justify why this deserves a complex workflow over simple alternatives]
 
 BEGINNING: [List of agents for phase 1 - avoid "summarizer" for computational problems]
-MIDDLE: [List of agents for phase 2 - STRONGLY prefer 2-5 agents]
+MIDDLE: [List of agents for phase 2 - STRONGLY prefer 3-5 agents]
 END: [List of agents for phase 3]
-
-PREFERRED COMPLEX WORKFLOW PATTERNS:
-- beginning=[], middle=["predictor", "predictor", "predictor"], end=["aggregator"]  
-- beginning=["summarizer"], middle=["predictor", "predictor", "debater"], end=["aggregator"]
-- beginning=["summarizer"], middle=["debater", "debater"], end=["aggregator", "refiner"]
 
 AVOID simple single-agent patterns unless the query is a trivial factual lookup with zero ambiguity or inference required."""
 
@@ -216,7 +216,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
     def _optimize_prompts(self, state: AgentState) -> AgentState:
         """
         Generate custom prompts for each agent type based on the query, context, and workflow plan
-        Enhanced to handle multi-agent systems like refiner
+        Enhanced to handle multi-agent systems like debater and refiner
         """
         query = state.get("query", "")
         context = state.get("context", "")
@@ -231,77 +231,93 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         truncated_context = f"{context[:self.max_context_length]}..." if len(context) > self.max_context_length else context
         
+        # Build agent-specific sections only for agents in the workflow (excluding aggregator)
+        agent_sections = []
+        
+        if "summarizer" in all_agents:
+            agent_sections.append("""1. SUMMARIZER: Condenses and clarifies context to make it more relevant to the query
+    - REQUIRES CUSTOM REASONING: Design a reasoning approach that directly addresses how this specific context should be filtered and organized for this particular query
+    - Consider: What makes information relevant here? What patterns exist? What hierarchies matter?""")
+        
+        if "predictor" in all_agents:
+            agent_sections.append("""2. PREDICTOR: Provides direct, factual responses based on available information
+    - REQUIRES CUSTOM REASONING: Create a reasoning methodology that matches how conclusions should be drawn from this specific evidence base for this query type
+    - Consider: What logical path fits this domain? What evidence patterns exist? What inference style is most reliable here?""")
+        
+        if "debater" in all_agents:
+            agent_sections.append("""3. DEBATER: Multi-agent system that explores different perspectives and approaches
+    - ADVOCATE: Develops one comprehensive approach to solving the query independently (no predetermined conclusions)
+    - CRITIC: Explores alternative approaches or identifies potential limitations independently (no predetermined positions)
+    - CRITICAL: Let both agents discover their own reasoning processes and conclusions based on the query-context""")
+        
+        if "refiner" in all_agents:
+            agent_sections.append("""4. REFINER: Multi-agent system that improves response quality
+    - CRITIC: Identifies accuracy, relevance, and clarity issues specific to this query type
+    - EDITOR: Implements improvements based on critique to enhance response quality""")
+        
+        agent_types_text = "\n\n".join(agent_sections)
+        
+        # Build guidelines specific to agents in workflow (excluding aggregator)
+        guidelines = []
+        guidelines.append("- Each prompt should be specific to this query and context combination")
+        guidelines.append("- Include detailed instructions for their custom reasoning approach")
+        
+        if "debater" in all_agents:
+            guidelines.extend([
+                "- For debater: Create two distinct prompts that encourage independent exploration of the problem space",
+                "  * Neither should be told what specific conclusions to reach",
+                "  * Advocate should focus on developing one comprehensive approach to the problem",
+                "  * Critic should focus on exploring alternative approaches or identifying potential limitations"
+            ])
+        
+        if "refiner" in all_agents:
+            guidelines.append("- For refiner: Create complementary prompts where critic identifies domain-specific issues and editor applies domain-specific improvements")
+        
+        guidelines.extend([
+            "- Use domain-specific terminology and concepts relevant to the query",
+            "- Consider the unique challenges and opportunities this specific query-context presents",
+            "- Design reasoning approaches that feel natural and purpose-built for this exact scenario"
+        ])
+        
+        guidelines_text = "\n".join(guidelines)
+        
         system_prompt = f"""You are an expert prompt engineer specializing in creating highly effective, context-specific prompts for different AI agent types in a multi-agent workflow system.
 
-TASK: Generate comprehensive custom system prompts for each agent type that will be used in this specific workflow, with reasoning approaches that are specifically crafted based on the unique characteristics of this query and context.
+    TASK: Generate comprehensive custom system prompts for each agent type that will be used in this specific workflow, with reasoning approaches that are specifically crafted based on the unique characteristics of this query and context.
 
-QUERY: {query}
-CONTEXT: {truncated_context if truncated_context else "No context provided"}
+    QUERY: {query}
+    CONTEXT: {truncated_context if truncated_context else "No context provided"}
 
-WORKFLOW PLAN:
-- Beginning Phase: {workflow_plan.get('beginning', [])}
-- Middle Phase: {workflow_plan.get('middle', [])}
-- End Phase: {workflow_plan.get('end', [])}
+    WORKFLOW PLAN:
+    - Beginning Phase: {workflow_plan.get('beginning', [])}
+    - Middle Phase: {workflow_plan.get('middle', [])}
+    - End Phase: {workflow_plan.get('end', [])}
 
-REASONING DESIGN PHILOSOPHY:
-Analyze the specific query-context combination to create bespoke reasoning approaches. Consider: query complexity, domain expertise needed, information density, ambiguity level, temporal aspects, quantitative vs qualitative nature, and logical dependencies.
+    REASONING DESIGN PHILOSOPHY:
+    Analyze the specific query-context combination to create bespoke reasoning approaches. Consider: query complexity, domain expertise needed, information density, ambiguity level, temporal aspects, quantitative vs qualitative nature, and logical dependencies.
 
-AGENT TYPES AND REASONING REQUIREMENTS:
+    AGENT TYPES:
 
-1. SUMMARIZER: Condenses and clarifies context to make it more relevant to the query
-- REQUIRES CUSTOM REASONING: Design a reasoning approach that directly addresses how this specific context should be filtered and organized for this particular query
-- Consider: What makes information relevant here? What patterns exist? What hierarchies matter?
-- Example reasoning styles to adapt: "Contextual Relevance Mapping", "Domain-Specific Filtering", "Query-Aligned Information Architecture"
+    {agent_types_text}
 
-2. PREDICTOR: Provides direct, factual responses based on available information  
-- REQUIRES CUSTOM REASONING: Create a reasoning methodology that matches how conclusions should be drawn from this specific evidence base for this query type
-- Consider: What logical path fits this domain? What evidence patterns exist? What inference style is most reliable here?
-- Example reasoning styles to adapt: "Evidence Synthesis Chains", "Domain-Specific Logic Flows", "Query-Pattern Matching Logic"
+    PROMPT GENERATION GUIDELINES:
+    {guidelines_text}
 
-3. DEBATER: Explores multiple perspectives and approaches complex reasoning
-- NO EXPLICIT REASONING REQUIRED: Focus on comprehensive perspective coverage and nuanced analysis
-- Should provide multiple viewpoints, handle complexity, and offer balanced analysis
-- Present final conclusions without showing the thinking process
-
-4. REFINER: Multi-agent system that improves response quality through critique and editing
-- REQUIRES TWO SPECIALIZED PROMPTS for its sub-agents:
-
-A) CRITIC SUB-AGENT: Identifies issues and potential improvements in responses
-    - Role: Analyze responses for accuracy, relevance, clarity, and completeness issues
-    - Should focus on: hallucinations, unsupported claims, irrelevant information, unclear statements
-    - Consider query type: What specific quality issues are most likely for this type of query?
-    - Consider context: What domain-specific accuracy concerns should be prioritized?
-    - Output: Specific, actionable critique points
-
-B) EDITOR SUB-AGENT: Implements improvements based on critique
-    - Role: Revise and improve responses while addressing identified issues
-    - Should focus on: accuracy enhancement, clarity improvement, relevance optimization
-    - Consider query requirements: What makes a response truly effective for this specific query?
-    - Consider context domain: What expertise or terminology is needed?
-    - Output: Improved, polished final response
-
-CUSTOM REASONING GENERATION INSTRUCTIONS:
-- Analyze this specific query's logical structure and information needs
-- Examine the context's unique characteristics (domain, complexity, relationships, gaps)
-- Design reasoning approaches that are precisely tailored to this query-context pair
-- For refiner sub-agents: Create complementary prompts where critic identifies domain-specific issues and editor applies domain-specific improvements
-- Consider what kind of thinking process would be most effective given the specific information patterns and query requirements
-- Make the reasoning approach feel natural and purpose-built for this exact scenario
-
-PROMPT GENERATION GUIDELINES:
-- Each prompt should be specific to this query and context combination
-- For each agent: Include detailed instructions for their custom reasoning approach
-- For refiner: Create two distinct, complementary prompts that work together effectively
-* Critic prompt should focus on identifying issues specific to this query type and domain
-* Editor prompt should focus on making improvements that enhance response quality for this specific task
-- Ensure the reasoning approaches are complementary but distinct
-- Use domain-specific terminology and concepts relevant to the query
-- Consider the unique challenges and opportunities this specific query-context presents
-- Consider the role each agent plays in the overall workflow
-
-Generate custom prompts that implement reasoning approaches specifically designed for this unique query-context combination."""
-
-        structured_llm = self.llm.with_structured_output(CustomPrompts)
+    Generate custom prompts that implement reasoning approaches specifically designed for this unique query-context combination."""
+        
+        fields = {}
+        if "summarizer" in all_agents:
+            fields["summarizer"] = (str, Field(description="Custom comprehensive prompt for summarizer agent", default=""))
+        if "predictor" in all_agents:
+            fields["predictor"] = (str, Field(description="Custom comprehensive prompt for predictor agent", default=""))
+        if "debater" in all_agents:
+            fields["debater"] = (DebaterPrompts, Field(description="Custom prompts for debater sub-agents", default_factory=DebaterPrompts))
+        if "refiner" in all_agents:
+            fields["refiner"] = (RefinerPrompts, Field(description="Custom prompts for refiner sub-agents", default_factory=RefinerPrompts))
+        
+        DynamicCustomPrompts = create_model('DynamicCustomPrompts', **fields)
+        
+        structured_llm = self.llm.with_structured_output(DynamicCustomPrompts)
         
         prompt_messages = [
             SystemMessage(content=system_prompt),
@@ -310,26 +326,32 @@ Generate custom prompts that implement reasoning approaches specifically designe
         
         response = structured_llm.invoke(prompt_messages)
         
-        # Structure the custom prompts to handle the nested refiner structure
-        custom_prompts = {
-            "summarizer": response.summarizer,
-            "predictor": response.predictor,
-            "debater": response.debater,
-            "refiner": {
+        # Structure the custom prompts to handle the nested debater and refiner structures (excluding aggregator)
+        custom_prompts = {}
+        
+        if "summarizer" in all_agents:
+            custom_prompts["summarizer"] = response.summarizer
+        if "predictor" in all_agents:
+            custom_prompts["predictor"] = response.predictor
+        if "debater" in all_agents:
+            custom_prompts["debater"] = {
+                "advocate": response.debater.advocate,
+                "critic": response.debater.critic
+            }
+        if "refiner" in all_agents:
+            custom_prompts["refiner"] = {
                 "critic": response.refiner.critic,
                 "editor": response.refiner.editor
             }
-        }
         
         print("Generated custom prompts:")
         for agent_type, prompt in custom_prompts.items():
-            if agent_type in all_agents:
-                if agent_type == "refiner":
-                    print(f"  {agent_type}:")
-                    print(f"    critic: {prompt['critic'][:100]}...")
-                    print(f"    editor: {prompt['editor'][:100]}...")
-                else:
-                    print(f"  {agent_type}: {prompt[:100]}...")
+            if agent_type in ["debater", "refiner"]:
+                print(f"  {agent_type}:")
+                for sub_agent, sub_prompt in prompt.items():
+                    print(f"    {sub_agent}: {sub_prompt[:100]}...")
+            else:
+                print(f"  {agent_type}: {prompt[:100]}...")
         
         state["custom_prompts"] = custom_prompts
         return state
@@ -379,9 +401,9 @@ Generate custom prompts that implement reasoning approaches specifically designe
         # Execute all middle agents (predictor and/or debater)
         for agent_name in middle_agents:
             print(f"  Running {agent_name} with custom prompt")
-            custom_prompt = custom_prompts.get(agent_name, "")
             
             if agent_name == "predictor":
+                custom_prompt = custom_prompts.get(agent_name, "")
                 print(f"    Using custom {agent_name} prompt: {custom_prompt[:50]}...")
                 response = self.predictor.generate_response(
                     query=query, 
@@ -392,9 +414,19 @@ Generate custom prompts that implement reasoning approaches specifically designe
                 print(f"  Predictor result: {response[:250]}...")
                 
             elif agent_name == "debater":
+                # Get custom prompts for debater sub-agents
+                debater_prompts = custom_prompts.get("debater", {})
+                advocate_prompt = debater_prompts.get("advocate", "")
+                critic_prompt = debater_prompts.get("critic", "")
+                
+                print(f"    Using custom advocate prompt: {advocate_prompt[:50]}...")
+                print(f"    Using custom critic prompt: {critic_prompt[:50]}...")
+                
                 response = self.debater.generate_response(
                     query=query, 
                     context=context,
+                    advocate_system_prompt=advocate_prompt,
+                    critic_system_prompt=critic_prompt
                 )
                 messages.append(AIMessage(content=f"{response}"))
                 print(f"  Debater result: {response[:250]}...")
@@ -505,11 +537,9 @@ if __name__ == "__main__":
         sub_llm="mistral:7b", 
         planner_llm=llm,
     )
-
-    orchestration_agent.save_workflow_image()
     
     response = orchestration_agent.generate_response(
-        query="How many field goals did the Lions score?",
-        context="""..."""
+        query="How many field goals were scored in the first quarter?",
+        context="""To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007"""
     )
     print(f"Response:\n{response}")

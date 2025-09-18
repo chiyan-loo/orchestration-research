@@ -141,16 +141,16 @@ PHASE 1 - BEGINNING (Context Preparation):
 
 PHASE 2 - MIDDLE (Core Analysis):
 - ONLY "predictor" and/or "debater" allowed
-- Use "predictor" for discrete reasoning, factual verification, computational problems, direct information extraction
-- Use "debater" for multi-hop reasoning, complex inference chains, ambiguous contexts, subjective analysis
-- STRONGLY PREFER multiple agents (2-5) for comprehensive analysis
+- Use multiple "predictor" for discrete reasoning, factual verification, computational problems, direct information extraction
+- Use multiple "debater" for multi-hop reasoning, complex inference chains, ambiguous contexts, subjective analysis
+- STRONGLY PREFER multiple agents (3-5) for comprehensive analysis
 - Use both predictor and debater for queries requiring both factual extraction and inference
 - Single agent only for trivial factual lookups with zero ambiguity
 
 PHASE 3 - END (Synthesis & Quality):
 - ONLY "aggregator" and/or "refiner" allowed  
 - MANDATORY "aggregator" when middle phase has multiple agents
-- Use "refiner" to improve quality of generated responses while trading cost and latency
+- Use "refiner" to improve quality of generated responses and reduce hallucinations
 - Skip only when single middle agent produces definitive factual answer
 
 REQUIRED REASONING FORMAT:
@@ -159,20 +159,16 @@ REASONING:
 1. CONTEXT-QUERY INTERACTION: [Analyze how context complexity affects query difficulty - look for multi-hop reasoning, entity disambiguation, temporal relationships, cross-referencing needs]
 2. COMPLEXITY INDICATORS: [Identify specific complexity factors. A query is COMPLEX if it requires: Connecting multiple pieces of information, Making inferences beyond what's directly stated, Handling ambiguous or contradictory details]
 3. MULTI-AGENT JUSTIFICATION: [Explain why multiple agents will provide better coverage than single agent - different reasoning approaches, error-checking, comprehensive analysis]
-4. AGENT SELECTION STRATEGY: [Justify specific agent choices - why predictor vs debater, how many of each, what unique value each brings]
+4. AGENT SELECTION STRATEGY: [Justify specific agent choices - why predictor vs debater, how many, what unique value each brings]
 5. SYNTHESIS REQUIREMENTS: [Explain aggregation needs and quality improvement through refinement]
 6. WORKFLOW COMPLEXITY DECISION: [Justify why this deserves a complex workflow over simple alternatives]
 
 BEGINNING: [List of agents for phase 1 - avoid "summarizer" for computational problems]
-MIDDLE: [List of agents for phase 2 - STRONGLY prefer 2-5 agents]
+MIDDLE: [List of agents for phase 2 - STRONGLY prefer 3-5 agents]
 END: [List of agents for phase 3]
 
-PREFERRED COMPLEX WORKFLOW PATTERNS:
-- beginning=[], middle=["predictor", "predictor", "predictor"], end=["aggregator"]  
-- beginning=["summarizer"], middle=["predictor", "predictor", "debater"], end=["aggregator"]
-- beginning=["summarizer"], middle=["debater", "debater"], end=["aggregator", "refiner"]
-
 AVOID simple single-agent patterns unless the query is a trivial factual lookup with zero ambiguity or inference required."""
+
 
         structured_llm = self.llm.with_structured_output(WorkflowPlan)
         
@@ -344,10 +340,9 @@ if __name__ == "__main__":
         planner_llm=llm,
     )
 
-    orchestration_agent.save_workflow_image()
 
     response = orchestration_agent.generate_response(
-        query="How many field goals did the Lions score?",
+        query="How many field goals were scored in the first quarter?",
         context="""To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007"""
     )
     print(f"Response:\n{response}")

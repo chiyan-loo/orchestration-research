@@ -43,6 +43,7 @@ Instructions:
 2. Focus on facts and key points that are mentioned or supported by more than one message
 3. Ignore contradictory or outlier information that only appears in one message
 4. Synthesize the consistent information into a clear, direct, one-sentence answer to the query
+5. If there is an equal number of contradictory opinions, find the most accurate, well-thought response
 
 Provide your aggregated response:"""
 

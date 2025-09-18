@@ -43,13 +43,14 @@ Instructions:
 2. Focus on facts and key points that are mentioned or supported by more than one message
 3. Ignore contradictory or outlier information that only appears in one message
 4. Synthesize the consistent information into a clear, direct, one-sentence answer to the query
+5. If there is an equal number of contradictory opinions, find the most accurate, well-thought response
 
 Provide your aggregated response:"""
 
         
         # Generate aggregated response
         messages_for_llm = [
-            SystemMessage(content=self.prompt),
+            SystemMessage(content="You are an expert at analyzing multiple pieces of information and identifying consistent patterns to create accurate, synthesized responses."),
             HumanMessage(content=aggregation_prompt)
         ]
         
@@ -59,7 +60,7 @@ Provide your aggregated response:"""
 
 # Example usage
 if __name__ == "__main__":
-    aggregator = Aggregator(model="mistral:7b", prompt="You are an expert at analyzing multiple pieces of information and identifying consistent patterns to create accurate, synthesized responses.")
+    aggregator = Aggregator(model="mistral:7b")
     
     sample_messages = [
         "Paris is the capital of France and has about 2.1 million people.",
