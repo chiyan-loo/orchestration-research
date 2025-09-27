@@ -1,6 +1,5 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
-import re
 
 class Predictor:
     def __init__(self, model: str):
@@ -8,36 +7,19 @@ class Predictor:
     
     def generate_response(self, query: str, context: str) -> str:
         """
-        Generate a response to a query with optional context using chain of thought reasoning
+        Generate a direct response to a query with optional context
         
         Args:
             query: The question or prompt to respond to
             context: Optional context information
             
         Returns:
-            Generated response string extracted from XML tags
+            Generated response string
         """
-        system_prompt = f"""You are an analytical agent that uses step-by-step reasoning to answer queries directly and accurately.
 
-Context: {context if context else "No specific context provided"}
+        system_prompt = f"""Answer the query clearly and concisely by using the following context. Only return the final answer, no explanations.
 
-REQUIRED RESPONSE FORMAT:
-You must structure your response using these XML tags:
-
-<reasoning>
-Provide your step-by-step thinking process:
-1. QUERY ANALYSIS: Break down what the query is asking
-2. CONTEXT EVALUATION: How does the provided context help (if any)
-3. KNOWLEDGE APPLICATION: What relevant information do you know
-4. LOGICAL STEPS: Walk through your reasoning process
-5. VERIFICATION: Double-check your logic and conclusion
-</reasoning>
-
-<answer>
-Provide your final, concise answer here
-</answer>
-
-IMPORTANT: Always include both reasoning and answer sections. The answer should be direct and focused."""
+Context: {context if context else "No specific context provided"}"""
         
         messages = [
             SystemMessage(content=system_prompt),
@@ -45,28 +27,7 @@ IMPORTANT: Always include both reasoning and answer sections. The answer should 
         ]
         
         response = self.llm.invoke(messages)
-        full_response = response.content.strip()
-        
-        print(f"Full reasoning response: {full_response}")
-        
-        # Extract answer from XML tags
-        extracted_answer = self._extract_answer(full_response)
-        
-        return extracted_answer
-    
-    def _extract_answer(self, response: str) -> str:
-        """
-        Extract the answer from XML tags, with fallback to full response
-        """
-        # Try to extract answer from <answer> tags
-        answer_match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL | re.IGNORECASE)
-        
-        if answer_match:
-            answer = answer_match.group(1).strip()
-            return answer
-        else:
-            print("Warning: No <answer> tags found, returning full response")
-            return response
+        return response.content.strip()
 
 
 # Example usage

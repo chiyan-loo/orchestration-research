@@ -31,7 +31,7 @@ class Aggregator:
         ])
         
         # Create aggregation prompt
-        aggregation_prompt = f"""Analyze these multiple messages and provide a single, ONE SENTENCE response that directly answers the specific query based on consistent information found across the messages.
+        aggregation_prompt = f"""Analyze these multiple messages and only return the aggregated final answer that directly answers the specific query based on consistent information found across the messages, no explanations.
 
 Query: {query}
 

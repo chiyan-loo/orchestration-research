@@ -117,8 +117,7 @@ DO:
 - Remove unsupported claims entirely
 - Shorten wordy explanations
 - Use precise, specific language
-- Answer the query directly and stop
-- Acknowledge limitations clearly when context is insufficient"""
+- Answer the query directly"""
 
         improvement_prompt = f"""
 Query: {query}
