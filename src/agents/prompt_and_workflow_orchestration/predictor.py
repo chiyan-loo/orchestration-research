@@ -4,6 +4,7 @@ import re
 from pydantic import BaseModel, Field
 import json
 from typing import Optional
+from langchain_core.language_models.base import BaseLanguageModel
 
 
 class ResponseSchema(BaseModel):
@@ -12,8 +13,8 @@ class ResponseSchema(BaseModel):
     answer: str = Field(description="Final, concise and direct answer to the query.")
 
 class Predictor:
-    def __init__(self, model: str):
-        self.llm = ChatOllama(model=model, temperature=0.7).with_structured_output(ResponseSchema)
+    def __init__(self, llm: BaseLanguageModel):
+        self.llm = llm.with_structured_output(ResponseSchema)
     
     def generate_response(self, query: str, context: str, system_prompt: str) -> str:
         """
@@ -43,7 +44,9 @@ Context: {context if context else "No specific context provided"}"""
 
 # Example usage
 if __name__ == "__main__":
-    agent = Predictor(model="mistral:7b")
+    llm = ChatOllama(model="mistral:7b", temperature=0.3)
+
+    agent = Predictor(llm=llm)
     
     query = "What is the capital of France?"
     context = "France is a country in Western Europe."

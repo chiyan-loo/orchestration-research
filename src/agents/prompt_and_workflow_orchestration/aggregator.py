@@ -1,14 +1,12 @@
 from typing import List
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
+from langchain_core.language_models.base import BaseLanguageModel
 
 
 class Aggregator:
-    def __init__(self, model: str):
-        self.llm = ChatOllama(
-            model=model, 
-            temperature=0.4 # More consistent with aggregation
-        )
+    def __init__(self, llm: BaseLanguageModel):
+        self.llm = llm
     
     def aggregate_messages(self, messages: List[str], query: str) -> str:
         """
@@ -31,7 +29,7 @@ class Aggregator:
         ])
         
         # Create aggregation prompt
-        aggregation_prompt = f"""Analyze these multiple messages and only return the aggregated final answer that directly answers the specific query based on consistent information found across the messages, no explanations.
+        aggregation_prompt = f"""Analyze these multiple messages and only return the aggregated final answer. Provide a single, concise final answer that best reflects the consensus or most accurate result.
 
 Query: {query}
 
@@ -42,7 +40,7 @@ Instructions:
 1. Identify information that appears consistently across multiple messages
 2. Focus on facts and key points that are mentioned or supported by more than one message
 3. Ignore contradictory or outlier information that only appears in one message
-4. Synthesize the consistent information into a clear, direct, one-sentence answer to the query
+4. Synthesize the consistent information into a clear, direct answer to the query
 5. If there is an equal number of contradictory opinions, find the most accurate, well-thought response
 
 Provide your aggregated response:"""
@@ -60,7 +58,9 @@ Provide your aggregated response:"""
 
 # Example usage
 if __name__ == "__main__":
-    aggregator = Aggregator(model="mistral:7b")
+    llm = ChatOllama(model="mistral:7b", temperature=0.3)
+
+    aggregator = Aggregator(llm=llm)
     
     sample_messages = [
         "Paris is the capital of France and has about 2.1 million people.",

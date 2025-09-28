@@ -1,5 +1,6 @@
 from typing import TypedDict, List, Annotated, Literal, Union, Dict
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage, SystemMessage
+from langchain_core.language_models.base import BaseLanguageModel
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
@@ -87,16 +88,21 @@ class AgentState(TypedDict):
     custom_prompts: Dict[str, Union[str, Dict[str, str]]]
 
 class PromptAndWorkflowOrchestrationAgent():
-    def __init__(self, planner_llm, sub_llm: str, max_context_length: int = 4000):
+    def __init__(self, 
+                 planner_llm: BaseLanguageModel, 
+                 high_temp_llm: BaseLanguageModel,
+                 medium_temp_llm: BaseLanguageModel,
+                 low_temp_llm: BaseLanguageModel, 
+                 max_context_length: int = 4000):
 
         self.max_context_length = max_context_length
         self.llm = planner_llm
 
-        self.predictor = Predictor(model=sub_llm)
-        self.refiner = Refiner(model=sub_llm)
-        self.aggregator = Aggregator(model=sub_llm)
-        self.debater = Debater(model=sub_llm)
-        self.summarizer = Summarizer(model=sub_llm)
+        self.predictor = Predictor(llm=high_temp_llm)
+        self.refiner = Refiner(llm=medium_temp_llm)
+        self.aggregator = Aggregator(llm=low_temp_llm)
+        self.debater = Debater(predictor_llm=high_temp_llm, synthesizer_llm=medium_temp_llm)
+        self.summarizer = Summarizer(llm=low_temp_llm)
         
         self.graph = self._build_graph()
 
@@ -526,16 +532,22 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
 
 
 if __name__ == "__main__":
-    llm = ChatOpenAI(
+    planner_llm = ChatOpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
         model="openrouter/sonoma-dusk-alpha",
         temperature=0.7
     )
 
+    high_temp_llm= ChatOllama(model="mistral:7b", temperature=0.8)
+    medium_temp_llm= ChatOllama(model="mistral:7b", temperature=0.5)
+    low_temp_llm= ChatOllama(model="mistral:7b", temperature=0.2)
+
     orchestration_agent = PromptAndWorkflowOrchestrationAgent(
-        sub_llm="mistral:7b", 
-        planner_llm=llm,
+        planner_llm=planner_llm,
+        high_temp_llm=high_temp_llm,
+        medium_temp_llm=medium_temp_llm,
+        low_temp_llm=low_temp_llm,
     )
     
     response = orchestration_agent.generate_response(

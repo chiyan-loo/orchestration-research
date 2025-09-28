@@ -2,7 +2,7 @@ from typing import TypedDict, List
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
-
+from langchain_core.language_models.base import BaseLanguageModel
 
 class DebateState(TypedDict):
     query: str
@@ -17,10 +17,10 @@ class DebateState(TypedDict):
 
 
 class Debater:
-    def __init__(self, model: str, max_rounds: int = 2):
-        self.advocate_llm = ChatOllama(model=model, temperature=0.7)
-        self.critic_llm = ChatOllama(model=model, temperature=0.7)
-        self.synthesizer_llm = ChatOllama(model=model, temperature=0.5)
+    def __init__(self, synthesizer_llm: BaseLanguageModel, predictor_llm: BaseLanguageModel, max_rounds: int = 2):
+        self.advocate_llm = predictor_llm
+        self.critic_llm = predictor_llm
+        self.synthesizer_llm = synthesizer_llm
         self.max_rounds = max_rounds
         self.graph = self._build_graph()
     
@@ -186,7 +186,10 @@ Provide a balanced final answer that integrates consistent information from both
 
 
 if __name__ == "__main__":
-    debater = Debater(model="mistral:7b", max_rounds=2)
+    aggregator_llm = ChatOllama(model="mistral:7b", temperature=0.5)
+    predictor_llm = ChatOllama(model="mistral:7b", temperature=0.5)
+
+    debater = Debater(synthesizer_llm=aggregator_llm, predictor_llm=predictor_llm, max_rounds=2)
     
     query = "Should AI development be regulated?"
     context = "AI capabilities are advancing rapidly with potential benefits and risks."

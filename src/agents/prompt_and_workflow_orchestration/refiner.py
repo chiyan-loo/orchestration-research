@@ -3,6 +3,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, System
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
+from langchain_core.language_models.base import BaseLanguageModel
 
 class EditorResponseSchema(BaseModel):
     """Pydantic schema for structured response with reasoning and answer"""
@@ -19,11 +20,8 @@ class RefinerState(TypedDict):
     editor_system_prompt: str
 
 class Refiner:
-    def __init__(self, model: str):
-        self.llm = ChatOllama(
-            model=model,
-            temperature=0.4,
-        )
+    def __init__(self, llm: BaseLanguageModel):
+        self.llm = llm
         
         self.graph = self._build_graph()
 
@@ -122,7 +120,9 @@ Create a more accurate and concise response by addressing the critiques of the o
 
 
 if __name__ == "__main__":
-    refiner = Refiner(model="mistral:7b")
+    llm = ChatOllama(model="mistral:7b", temperature=0.3)
+
+    refiner = Refiner(llm=llm)
     
     query = "What is the capital of France?"
     current_response = """The capital of the United Kingdom is London"""

@@ -2,6 +2,7 @@ from typing import List
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from pydantic import BaseModel, Field
 from langchain_ollama import ChatOllama
+from langchain_core.language_models.base import BaseLanguageModel
 
 class ResponseSchema(BaseModel):
     """Pydantic schema for structured response with reasoning and answer"""
@@ -9,11 +10,8 @@ class ResponseSchema(BaseModel):
     answer: str = Field(description="Final, concise and direct answer to the query.")
 
 class Summarizer:
-    def __init__(self, model: str):
-        self.llm = ChatOllama(
-            model=model,
-            temperature=0.1  # Low temperature for conservative, precise summarization
-        )
+    def __init__(self, llm: BaseLanguageModel):
+        self.llm = llm.with_structured_output(ResponseSchema)
 
     def generate_response(self, query: str, context: str, system_prompt: str) -> str:
         """
@@ -33,4 +31,4 @@ Original Context: {context}
         ]
         
         response = self.llm.invoke(messages)
-        return response.reasoning.strip()
+        return response.answer.strip()
