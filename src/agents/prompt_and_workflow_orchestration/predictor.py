@@ -29,7 +29,9 @@ class Predictor:
         """
         system_prompt = f"""{system_prompt}
 
-Context: {context if context else "No specific context provided"}"""
+Context: {context if context else "No specific context provided"}
+
+Provide a single, concise final answer (1-5 words)"""
         
         messages = [
             SystemMessage(content=system_prompt),

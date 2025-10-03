@@ -87,7 +87,7 @@ class AgentState(TypedDict):
     workflow_plan: Dict[str, List[str]]
     custom_prompts: Dict[str, Union[str, Dict[str, str]]]
 
-class PromptAndWorkflowOrchestrationAgent():
+class OrchestrationAgent():
     def __init__(self, 
                  planner_llm: BaseLanguageModel, 
                  high_temp_llm: BaseLanguageModel,
@@ -137,7 +137,7 @@ class PromptAndWorkflowOrchestrationAgent():
 
         context_length = f"{len(context)}"
         if len(context) > self.max_context_length:
-            context_length += " (LONG - most likely needs summarization)"
+            context_length += " (LONG - likely needs summarization)"
         elif len(context) > self.max_context_length // 2:
             context_length += " (MODERATE - likely does not need summarization)"
         else:
@@ -204,7 +204,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         response = structured_llm.invoke(planner_messages)
         
-        print(f"Planner response: {response.reasoning}")
+        print(f"Planner reasoning: {response.reasoning}")
         print(f"Beginning phase: {response.beginning}")
         print(f"Middle phase: {response.middle}")  
         print(f"End phase: {response.end}")
@@ -243,7 +243,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         if "summarizer" in all_agents:
             agent_sections.append("""1. SUMMARIZER: Condenses and clarifies context to make it more relevant to the query
     - REQUIRES CUSTOM REASONING: Design a reasoning approach that directly addresses how this specific context should be filtered and organized for this particular query
-    - Consider: What makes information relevant here? What patterns exist? What hierarchies matter?""")
+    - Consider: What makes information relevant here? What information must be kept?""")
         
         if "predictor" in all_agents:
             agent_sections.append("""2. PREDICTOR: Provides direct, factual responses based on available information
@@ -518,9 +518,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
 
         return {
             "content": response["messages"][-1].content if response["messages"] else "No response generated",
-            "workflow_plan": response["workflow_plan"],
-            "custom_prompts": response["custom_prompts"],
-            "final_context": response["context"]
+            "workflow_plan": response["workflow_plan"]
         }
 
     def save_workflow_image(self):
@@ -535,15 +533,17 @@ if __name__ == "__main__":
     planner_llm = ChatOpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
-        model="openrouter/sonoma-dusk-alpha",
+        model="x-ai/grok-4-fast:free",
         temperature=0.7
     )
+
+    # planner_llm = ChatOllama(model="mistral:7b", temperature=0.6)
 
     high_temp_llm= ChatOllama(model="mistral:7b", temperature=0.8)
     medium_temp_llm= ChatOllama(model="mistral:7b", temperature=0.5)
     low_temp_llm= ChatOllama(model="mistral:7b", temperature=0.2)
 
-    orchestration_agent = PromptAndWorkflowOrchestrationAgent(
+    orchestration_agent = OrchestrationAgent(
         planner_llm=planner_llm,
         high_temp_llm=high_temp_llm,
         medium_temp_llm=medium_temp_llm,

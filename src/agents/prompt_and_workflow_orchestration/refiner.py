@@ -44,7 +44,7 @@ class Refiner:
         context = state["context"]
         system_prompt = state["critic_system_prompt"]
 
-        critique_prompt = f"""Thoroughly critique the current response given the query and context. Provide a thorough list potential flaws of the current response and make suggestions. Be ruthless in your critique. 
+        critique_prompt = f"""Thoroughly critique the current response given the query and context. Provide a thorough list potential flaws of the current response and make suggestions. Value shortness and concisenesss (1-5 words) as a criteria. Be ruthless in your critique.
 Query: {query}
 
 Current Response: {current_response}
@@ -80,7 +80,7 @@ Context: {context}
 
 Critique: {critique}
 
-Create a more accurate and concise response by addressing the critiques of the original response."""
+Create a more accurate single, concise final answer (1-5 words) by addressing the critiques of the original response."""
 
         structured_llm = self.llm.with_structured_output(EditorResponseSchema)
         messages = [

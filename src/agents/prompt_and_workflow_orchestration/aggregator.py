@@ -29,7 +29,7 @@ class Aggregator:
         ])
         
         # Create aggregation prompt
-        aggregation_prompt = f"""Analyze these multiple messages and only return the aggregated final answer. Provide a single, concise final answer that best reflects the consensus or most accurate result.
+        aggregation_prompt = f"""Analyze these multiple messages and only return the aggregated final answer. Provide a single, concise final answer (1-5 words) that best reflects the consensus or most accurate result.
 
 Query: {query}
 

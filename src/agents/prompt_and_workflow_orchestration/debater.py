@@ -140,7 +140,7 @@ class Debater:
             if i < len(state["critic_messages"]):
                 debate_content += f"Critic: {state['critic_messages'][i]}\n\n"
         
-        prompt = f"""Synthesize this multi-agent debate into a concise, comprehensive response that directly answers the query.
+        prompt = f"""Synthesize this multi-agent debate into a concise final answer (1-5 words).
 
 Query: {state['query']}
 
