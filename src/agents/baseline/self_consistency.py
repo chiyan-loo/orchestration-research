@@ -15,6 +15,7 @@ class AgentState(TypedDict):
     predictions: List[str]
     aggregated: str
 
+
 class SelfConsistency:
     def __init__(
         self, 
@@ -22,20 +23,11 @@ class SelfConsistency:
         aggregator_llm: BaseLanguageModel,
         num_predictors: int = 3
     ):
-        """
-        Initialize SelfConsistency with custom LLM objects.
-        
-        Args:
-            predictor_llm: LLM object to use for all predictors
-            aggregator_llm: LLM object for aggregation
-            num_predictors: Number of predictor instances to create
-        """
         self.predictor_llms = [predictor_llm for _ in range(num_predictors)]
         self.aggregator_llm = aggregator_llm
         self.graph = self._build_graph()
 
     def _build_graph(self):
-        """Build the workflow graph"""
         workflow = StateGraph(AgentState)
         workflow.add_node("predictors", self._predictors_step)
         workflow.add_node("aggregate", self._aggregate_step)
@@ -45,7 +37,6 @@ class SelfConsistency:
         return workflow.compile()
     
     async def _run_predictor(self, query: str, context: str, llm: BaseLanguageModel) -> str:
-        """Run a single predictor asynchronously"""
         system_prompt = f"""Answer the query clearly and concisely by using the following context. Only return the final answer, no explanations.
 
 Context: {context if context else "No specific context provided"}"""
@@ -55,18 +46,10 @@ Context: {context if context else "No specific context provided"}"""
             HumanMessage(content=query)
         ]
         
-        # Check if LLM supports async invoke
-        if hasattr(llm, 'ainvoke'):
-            response = await llm.ainvoke(messages)
-        else:
-            # Fallback to sync invoke in thread pool
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, llm.invoke, messages)
-        
+        response = await llm.ainvoke(messages)
         return response.content.strip()
 
     async def _predictors_step(self, state: AgentState) -> AgentState:
-        """Run all predictors asynchronously"""
         tasks = [
             self._run_predictor(state["query"], state["context"], llm)
             for llm in self.predictor_llms
@@ -76,7 +59,6 @@ Context: {context if context else "No specific context provided"}"""
         return state
 
     async def _aggregate_step(self, state: AgentState) -> AgentState:
-        """Aggregate predictions into final answer"""
         joined_preds = "\n".join([f"- {p}" for p in state["predictions"]])
         prompt = f"""You are an aggregator.
 Multiple predictors gave answers to the same query. Only return the aggregated final answer, no explanations.
@@ -93,32 +75,21 @@ Provide a single, concise final answer that best reflects the consensus or most 
             HumanMessage(content=prompt)
         ]
         
-        # Check if LLM supports async invoke
-        if hasattr(self.aggregator_llm, 'ainvoke'):
-            response = await self.aggregator_llm.ainvoke(messages)
-        else:
-            # Fallback to sync invoke in thread pool
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, self.aggregator_llm.invoke, messages)
-        
+        response = await self.aggregator_llm.ainvoke(messages)
         state["aggregated"] = response.content.strip()
         return state
 
     async def generate_response(self, query: str, context: str = "") -> str:
-        """Generate response asynchronously"""
-        state = {
+        initial_state = {
             "query": query,
             "context": context,
             "predictions": [],
             "aggregated": ""
         }
-        # Run predictors async, then aggregate
-        state = await self._predictors_step(state)
-        state = await self._aggregate_step(state)
-        return state["aggregated"]
+        final_state = await self.graph.ainvoke(initial_state)
+        return final_state["aggregated"]
 
 
-# ---- Example Usage ----
 if __name__ == "__main__":
     async def main():
         load_dotenv(find_dotenv())

@@ -6,8 +6,8 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, field_validator, Field, create_model
 import os
+import asyncio
 from dotenv import load_dotenv, find_dotenv
-from langchain_openai import ChatOpenAI
 
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
@@ -126,9 +126,9 @@ class OrchestrationAgent():
 
         return workflow.compile()
 
-    def _plan_workflow(self, state: AgentState) -> AgentState:
+    async def _plan_workflow_async(self, state: AgentState) -> AgentState:
         """
-        Plans the three-phase workflow: beginning, middle, and end
+        Plans the three-phase workflow: beginning, middle, and end (async version)
         """
         query = state.get("query", "")
         context = state.get("context", "")
@@ -202,7 +202,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             HumanMessage(content="Create a structured three-phase workflow plan for this query.")
         ]
         
-        response = structured_llm.invoke(planner_messages)
+        response = await structured_llm.ainvoke(planner_messages)
         
         print(f"Planner reasoning: {response.reasoning}")
         print(f"Beginning phase: {response.beginning}")
@@ -219,10 +219,13 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         return state
 
-    def _optimize_prompts(self, state: AgentState) -> AgentState:
+    def _plan_workflow(self, state: AgentState) -> AgentState:
+        """Synchronous wrapper for async planning"""
+        return asyncio.run(self._plan_workflow_async(state))
+
+    async def _optimize_prompts_async(self, state: AgentState) -> AgentState:
         """
-        Generate custom prompts for each agent type based on the query, context, and workflow plan
-        Enhanced to handle multi-agent systems like debater and refiner
+        Generate custom prompts for each agent type based on the query, context, and workflow plan (async version)
         """
         query = state.get("query", "")
         context = state.get("context", "")
@@ -330,7 +333,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             HumanMessage(content="Generate comprehensive optimized system prompts for each agent type in the workflow based on this specific query and context.")
         ]
         
-        response = structured_llm.invoke(prompt_messages)
+        response = await structured_llm.ainvoke(prompt_messages)
         
         # Structure the custom prompts to handle the nested debater and refiner structures (excluding aggregator)
         custom_prompts = {}
@@ -362,9 +365,13 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         state["custom_prompts"] = custom_prompts
         return state
 
-    def _execute_beginning(self, state: AgentState) -> AgentState:
+    def _optimize_prompts(self, state: AgentState) -> AgentState:
+        """Synchronous wrapper for async prompt optimization"""
+        return asyncio.run(self._optimize_prompts_async(state))
+
+    async def _execute_beginning_async(self, state: AgentState) -> AgentState:
         """
-        Execute the beginning phase using simple Python loops with custom prompts
+        Execute the beginning phase using async with custom prompts
         """
         workflow_plan = state.get("workflow_plan", {})
         beginning_agents = workflow_plan.get("beginning", [])
@@ -373,6 +380,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         print(f"Executing beginning phase with {len(beginning_agents)} agents: {beginning_agents}")
         
         # Simple loop through beginning agents (only summarizer allowed)
+        # This phase is sequential because context needs to be refined before middle phase
         for agent_name in beginning_agents:
             if agent_name == "summarizer":
                 print(f"  Running {agent_name} with custom prompt")
@@ -380,10 +388,14 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                 context = state.get("context", "")
                 custom_prompt = custom_prompts.get("summarizer", "")
                 
-                refined_context = self.summarizer.generate_response(
-                    query=query,
-                    context=context,
-                    system_prompt=custom_prompt
+                # Wrap synchronous call in executor to make it async
+                loop = asyncio.get_event_loop()
+                refined_context = await loop.run_in_executor(
+                    None,
+                    self.summarizer.generate_response,
+                    query,
+                    context,
+                    custom_prompt
                 )
                 
                 print(f"  Summarizer refined context: {refined_context[:250]}...")
@@ -391,9 +403,13 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         return state
 
-    def _execute_middle(self, state: AgentState) -> AgentState:
+    def _execute_beginning(self, state: AgentState) -> AgentState:
+        """Synchronous wrapper for async beginning execution"""
+        return asyncio.run(self._execute_beginning_async(state))
+
+    async def _execute_middle_async(self, state: AgentState) -> AgentState:
         """
-        Execute the middle phase using simple Python loops with custom prompts
+        Execute the middle phase in PARALLEL using asyncio.gather with custom prompts
         """
         workflow_plan = state.get("workflow_plan", {})
         middle_agents = workflow_plan.get("middle", [])
@@ -402,47 +418,72 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         context = state.get("context", "")
         messages = state.get("messages", [])
         
-        print(f"Executing middle phase with {len(middle_agents)} agents: {middle_agents}")
+        print(f"Executing middle phase with {len(middle_agents)} agents IN PARALLEL: {middle_agents}")
         
-        # Execute all middle agents (predictor and/or debater)
-        for agent_name in middle_agents:
-            print(f"  Running {agent_name} with custom prompt")
+        # Create async tasks for all middle agents
+        async def run_predictor():
+            custom_prompt = custom_prompts.get("predictor", "")
+            print(f"  Running predictor with custom prompt: {custom_prompt[:50]}...")
             
-            if agent_name == "predictor":
-                custom_prompt = custom_prompts.get(agent_name, "")
-                print(f"    Using custom {agent_name} prompt: {custom_prompt[:50]}...")
-                response = self.predictor.generate_response(
-                    query=query, 
-                    context=context,
-                    system_prompt=custom_prompt
-                )
-                messages.append(AIMessage(content=f"{response}"))
-                print(f"  Predictor result: {response[:250]}...")
-                
-            elif agent_name == "debater":
-                # Get custom prompts for debater sub-agents
-                debater_prompts = custom_prompts.get("debater", {})
-                advocate_prompt = debater_prompts.get("advocate", "")
-                critic_prompt = debater_prompts.get("critic", "")
-                
-                print(f"    Using custom advocate prompt: {advocate_prompt[:50]}...")
-                print(f"    Using custom critic prompt: {critic_prompt[:50]}...")
-                
-                response = self.debater.generate_response(
-                    query=query, 
+            # Wrap synchronous call in executor
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                self.predictor.generate_response,
+                query,
+                context,
+                custom_prompt
+            )
+            print(f"  Predictor result: {response[:250]}...")
+            return ("predictor", response)
+        
+        async def run_debater():
+            debater_prompts = custom_prompts.get("debater", {})
+            advocate_prompt = debater_prompts.get("advocate", "")
+            critic_prompt = debater_prompts.get("critic", "")
+            
+            print(f"  Running debater with custom advocate prompt: {advocate_prompt[:50]}...")
+            print(f"  Running debater with custom critic prompt: {critic_prompt[:50]}...")
+            
+            # Wrap synchronous call in executor
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.debater.generate_response(
+                    query=query,
                     context=context,
                     advocate_system_prompt=advocate_prompt,
                     critic_system_prompt=critic_prompt
                 )
-                messages.append(AIMessage(content=f"{response}"))
-                print(f"  Debater result: {response[:250]}...")
+            )
+            print(f"  Debater result: {response[:250]}...")
+            return ("debater", response)
+        
+        # Build list of tasks to run in parallel
+        tasks = []
+        for agent_name in middle_agents:
+            if agent_name == "predictor":
+                tasks.append(run_predictor())
+            elif agent_name == "debater":
+                tasks.append(run_debater())
+        
+        # Execute all middle agents in parallel
+        results = await asyncio.gather(*tasks)
+        
+        # Add results to messages in the order they completed
+        for agent_name, response in results:
+            messages.append(AIMessage(content=f"{response}"))
         
         state["messages"] = messages
         return state
 
-    def _execute_end(self, state: AgentState) -> AgentState:
+    def _execute_middle(self, state: AgentState) -> AgentState:
+        """Synchronous wrapper for async middle execution"""
+        return asyncio.run(self._execute_middle_async(state))
+
+    async def _execute_end_async(self, state: AgentState) -> AgentState:
         """
-        Execute the end phase using simple Python loops with custom prompts
+        Execute the end phase using async with custom prompts
         """
         workflow_plan = state.get("workflow_plan", {})
         end_agents = workflow_plan.get("end", [])
@@ -453,7 +494,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         print(f"Executing end phase with {len(end_agents)} agents: {end_agents}")
         
-        # Simple loop through end agents (aggregator and/or refiner)
+        # End phase must be sequential because:
+        # 1. Aggregator must process all middle messages first
+        # 2. Refiner needs the aggregated (or last) response to refine
         for agent_name in end_agents:
             print(f"  Running {agent_name} with custom prompt(s)")
             
@@ -466,9 +509,13 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                 
                 print(f"  Aggregator processing {len(message_contents)} messages")
                 
-                aggregated_response = self.aggregator.aggregate_messages(
-                    messages=message_contents,
-                    query=query,
+                # Wrap synchronous call in executor
+                loop = asyncio.get_event_loop()
+                aggregated_response = await loop.run_in_executor(
+                    None,
+                    self.aggregator.aggregate_messages,
+                    message_contents,
+                    query
                 )
                 
                 messages.append(AIMessage(content=aggregated_response))
@@ -490,12 +537,17 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                 print(f"    Using custom critic prompt: {critic_prompt[:50]}...")
                 print(f"    Using custom editor prompt: {editor_prompt[:50]}...")
                 
-                improved_response = self.refiner.generate_response(
-                    query=query,
-                    current_response=current_response,
-                    context=context,
-                    critic_system_prompt=critic_prompt,
-                    editor_system_prompt=editor_prompt
+                # Wrap synchronous call in executor
+                loop = asyncio.get_event_loop()
+                improved_response = await loop.run_in_executor(
+                    None,
+                    lambda: self.refiner.generate_response(
+                        query=query,
+                        current_response=current_response,
+                        context=context,
+                        critic_system_prompt=critic_prompt,
+                        editor_system_prompt=editor_prompt
+                    )
                 )
                 
                 messages.append(AIMessage(content=improved_response))
@@ -503,6 +555,10 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         state["messages"] = messages
         return state
+
+    def _execute_end(self, state: AgentState) -> AgentState:
+        """Synchronous wrapper for async end execution"""
+        return asyncio.run(self._execute_end_async(state))
 
     def generate_response(self, query: str, context: str):
         initial_state = {
@@ -521,6 +577,24 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             "workflow_plan": response["workflow_plan"]
         }
 
+    async def generate_response_async(self, query: str, context: str):
+        """Fully async version of generate_response"""
+        initial_state = {
+            "query": query,
+            "context": context,
+            "messages": [],
+            "workflow_plan": {},
+            "custom_prompts": {},
+        }
+        
+        print(f"Starting three-phase async orchestration with custom prompts for query: {query}")
+        response = await self.graph.ainvoke(initial_state)
+
+        return {
+            "content": response["messages"][-1].content if response["messages"] else "No response generated",
+            "workflow_plan": response["workflow_plan"]
+        }
+
     def save_workflow_image(self):
         """Save workflow as PNG image"""
         png_data = self.graph.get_graph().draw_mermaid_png()
@@ -529,7 +603,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             f.write(png_data)
 
 
-if __name__ == "__main__":
+async def main():
     planner_llm = ChatOpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -537,11 +611,9 @@ if __name__ == "__main__":
         temperature=0.7
     )
 
-    # planner_llm = ChatOllama(model="mistral:7b", temperature=0.6)
-
-    high_temp_llm= ChatOllama(model="mistral:7b", temperature=0.8)
-    medium_temp_llm= ChatOllama(model="mistral:7b", temperature=0.5)
-    low_temp_llm= ChatOllama(model="mistral:7b", temperature=0.2)
+    high_temp_llm = ChatOllama(model="mistral:7b", temperature=0.8)
+    medium_temp_llm = ChatOllama(model="mistral:7b", temperature=0.5)
+    low_temp_llm = ChatOllama(model="mistral:7b", temperature=0.2)
 
     orchestration_agent = OrchestrationAgent(
         planner_llm=planner_llm,
@@ -550,8 +622,12 @@ if __name__ == "__main__":
         low_temp_llm=low_temp_llm,
     )
     
-    response = orchestration_agent.generate_response(
+    response = await orchestration_agent.generate_response_async(
         query="How many field goals were scored in the first quarter?",
         context="""To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007"""
     )
     print(f"Response:\n{response}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
