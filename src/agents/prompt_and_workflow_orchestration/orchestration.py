@@ -109,14 +109,14 @@ class OrchestrationAgent():
     def _build_graph(self):
         workflow = StateGraph(AgentState)
 
-        # Updated workflow with custom prompt generation
-        workflow.add_node("planner", self._plan_workflow)
-        workflow.add_node("optimize_prompts", self._optimize_prompts)
-        workflow.add_node("execute_beginning", self._execute_beginning)
-        workflow.add_node("execute_middle", self._execute_middle)
-        workflow.add_node("execute_end", self._execute_end)
+        # Use async methods directly
+        workflow.add_node("planner", self._plan_workflow_async)
+        workflow.add_node("optimize_prompts", self._optimize_prompts_async)
+        workflow.add_node("execute_beginning", self._execute_beginning_async)
+        workflow.add_node("execute_middle", self._execute_middle_async)
+        workflow.add_node("execute_end", self._execute_end_async)
 
-        # Sequential edges with new prompt generation step
+        # Sequential edges
         workflow.add_edge(START, "planner")
         workflow.add_edge("planner", "optimize_prompts")
         workflow.add_edge("optimize_prompts", "execute_beginning")
@@ -157,7 +157,7 @@ AVAILABLE AGENTS:
 - refiner: Reviews and improves existing responses
 
 WORKFLOW PLANNING PHILOSOPHY:
-You STRONGLY PREFER complex, multi-agent workflows over simple single-agent solutions. Even seemingly straightforward queries often benefit from multiple perspectives and comprehensive analysis when considered alongside their context.
+You PREFER complex, multi-agent workflows over simple single-agent solutions. Even seemingly straightforward queries often benefit from multiple perspectives and comprehensive analysis when considered alongside their context.
 
 THREE-PHASE WORKFLOW STRUCTURE:
 
@@ -169,8 +169,7 @@ PHASE 2 - MIDDLE (Core Analysis):
 - ONLY "predictor" and/or "debater" allowed
 - Use multiple "predictor" for discrete reasoning, factual verification, computational problems, direct information extraction
 - Use multiple "debater" for multi-hop reasoning, complex inference chains, ambiguous contexts, subjective analysis
-- STRONGLY PREFER multiple agents (3-5) for comprehensive analysis
-- Use both predictor and debater for queries requiring both factual extraction and inference
+- STRONGLY PREFER multiple agents (2-4) for comprehensive analysis
 - Single agent only for trivial factual lookups with zero ambiguity
 
 PHASE 3 - END (Synthesis & Quality):
@@ -190,7 +189,7 @@ REASONING:
 6. WORKFLOW COMPLEXITY DECISION: [Justify why this deserves a complex workflow over simple alternatives]
 
 BEGINNING: [List of agents for phase 1 - avoid "summarizer" for computational problems]
-MIDDLE: [List of agents for phase 2 - STRONGLY prefer 3-5 agents]
+MIDDLE: [List of agents for phase 2 - STRONGLY prefer 2-4 agents]
 END: [List of agents for phase 3]
 
 AVOID simple single-agent patterns unless the query is a trivial factual lookup with zero ambiguity or inference required."""
@@ -218,10 +217,6 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         state["workflow_plan"] = workflow_plan
         
         return state
-
-    def _plan_workflow(self, state: AgentState) -> AgentState:
-        """Synchronous wrapper for async planning"""
-        return asyncio.run(self._plan_workflow_async(state))
 
     async def _optimize_prompts_async(self, state: AgentState) -> AgentState:
         """
@@ -260,9 +255,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
     - CRITICAL: Let both agents discover their own reasoning processes and conclusions based on the query-context""")
         
         if "refiner" in all_agents:
-            agent_sections.append("""4. REFINER: Multi-agent system that improves response quality
-    - CRITIC: Identifies accuracy, relevance, and clarity issues specific to this query type
-    - EDITOR: Implements improvements based on critique to enhance response quality""")
+            agent_sections.append("""4. REFINER: Multi-agent system that fact checks responses
+    - CRITIC: Identifies accuracy and hallucination issues specific to this query type, values conciseness
+    - EDITOR: Implements improvements based on critique specific to the query type to reduce increase accuracy, values conciseness""")
         
         agent_types_text = "\n\n".join(agent_sections)
         
@@ -365,10 +360,6 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         state["custom_prompts"] = custom_prompts
         return state
 
-    def _optimize_prompts(self, state: AgentState) -> AgentState:
-        """Synchronous wrapper for async prompt optimization"""
-        return asyncio.run(self._optimize_prompts_async(state))
-
     async def _execute_beginning_async(self, state: AgentState) -> AgentState:
         """
         Execute the beginning phase using async with custom prompts
@@ -402,10 +393,6 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                 state["context"] = refined_context
         
         return state
-
-    def _execute_beginning(self, state: AgentState) -> AgentState:
-        """Synchronous wrapper for async beginning execution"""
-        return asyncio.run(self._execute_beginning_async(state))
 
     async def _execute_middle_async(self, state: AgentState) -> AgentState:
         """
@@ -476,10 +463,6 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         
         state["messages"] = messages
         return state
-
-    def _execute_middle(self, state: AgentState) -> AgentState:
-        """Synchronous wrapper for async middle execution"""
-        return asyncio.run(self._execute_middle_async(state))
 
     async def _execute_end_async(self, state: AgentState) -> AgentState:
         """
@@ -556,26 +539,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         state["messages"] = messages
         return state
 
-    def _execute_end(self, state: AgentState) -> AgentState:
-        """Synchronous wrapper for async end execution"""
-        return asyncio.run(self._execute_end_async(state))
-
     def generate_response(self, query: str, context: str):
-        initial_state = {
-            "query": query,
-            "context": context,
-            "messages": [],
-            "workflow_plan": {},
-            "custom_prompts": {},
-        }
-        
-        print(f"Starting three-phase orchestration with custom prompts for query: {query}")
-        response = self.graph.invoke(initial_state)
-
-        return {
-            "content": response["messages"][-1].content if response["messages"] else "No response generated",
-            "workflow_plan": response["workflow_plan"]
-        }
+        """Synchronous version - creates new event loop"""
+        return asyncio.run(self.generate_response_async(query, context))
 
     async def generate_response_async(self, query: str, context: str):
         """Fully async version of generate_response"""
@@ -604,13 +570,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
 
 
 async def main():
-    planner_llm = ChatOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-        model="x-ai/grok-4-fast:free",
-        temperature=0.7
-    )
-
+    planner_llm = ChatOllama(model="mistral:7b", temperature=0.7)
     high_temp_llm = ChatOllama(model="mistral:7b", temperature=0.8)
     medium_temp_llm = ChatOllama(model="mistral:7b", temperature=0.5)
     low_temp_llm = ChatOllama(model="mistral:7b", temperature=0.2)

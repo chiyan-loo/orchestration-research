@@ -79,7 +79,7 @@ Provide a single, concise final answer that best reflects the consensus or most 
         state["aggregated"] = response.content.strip()
         return state
 
-    async def generate_response(self, query: str, context: str = "") -> str:
+    async def generate_response(self, query: str, context: str = "") -> dict:
         initial_state = {
             "query": query,
             "context": context,
@@ -87,19 +87,24 @@ Provide a single, concise final answer that best reflects the consensus or most 
             "aggregated": ""
         }
         final_state = await self.graph.ainvoke(initial_state)
-        return final_state["aggregated"]
+        return {
+            "content": final_state["aggregated"],
+            "predictions": final_state["predictions"]
+        }
 
 
 if __name__ == "__main__":
     async def main():
         load_dotenv(find_dotenv())
 
-        predictor_llm = ChatOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            model="x-ai/grok-4-fast:free",
-            temperature=0.8
-        )
+        # predictor_llm = ChatOpenAI(
+        #     base_url="https://openrouter.ai/api/v1",
+        #     api_key=os.getenv("OPENROUTER_API_KEY"),
+        #     model="x-ai/grok-4-fast:free",
+        #     temperature=0.8
+        # )
+
+        predictor_llm = ChatOllama(model="mistral:7b", temperature=0.8)
         aggregator_llm = ChatOllama(model="mistral:7b", temperature=0.2)
         
         workflow = SelfConsistency(
@@ -112,6 +117,8 @@ if __name__ == "__main__":
         context = "France is a country in Western Europe."
         
         final_answer = await workflow.generate_response(query, context)
-        print("FINAL ANSWER:", final_answer)
+        print("FINAL ANSWER:", final_answer["content"])
+
+        print("Predictions: ", final_answer["predictions"])
     
     asyncio.run(main())
