@@ -567,7 +567,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             "content": response["messages"][-1].content if response["messages"] else "No response generated",
             "workflow_plan": response["workflow_plan"],
             "planner_reasoning": response["planner_reasoning"],
-            "custom_prompts": response["custom_prompts"]
+            "custom_prompts": response["custom_prompts"],
+            "input_tokens": response.response_metadata.get("input_tokens", 0),
+            "output_tokens": response.response_metadata.get("output_tokens", 0),
         }
 
     def save_workflow_image(self):
