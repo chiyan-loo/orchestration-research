@@ -3,14 +3,12 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMe
 from langchain_core.language_models.base import BaseLanguageModel
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, field_validator, Field, create_model
 import os
 import asyncio
 from dotenv import load_dotenv, find_dotenv
-
-# Load environment variables from .env file
-load_dotenv(find_dotenv())
 
 from .refiner import Refiner
 from .aggregator import Aggregator
@@ -85,6 +83,7 @@ class AgentState(TypedDict):
     query: str
     context: str
     workflow_plan: Dict[str, List[str]]
+    planner_reasoning: str
     custom_prompts: Dict[str, Union[str, Dict[str, str]]]
 
 class OrchestrationAgent():
@@ -137,24 +136,24 @@ class OrchestrationAgent():
 
         context_length = f"{len(context)}"
         if len(context) > self.max_context_length:
-            context_length += " (LONG - likely needs summarization)"
+            context_length += " (LONG - needs summarization)"
         elif len(context) > self.max_context_length // 2:
             context_length += " (MODERATE - likely does not need summarization)"
         else:
             context_length += " (SHORT - summarization unnecessary)"
     
-        system_prompt = f"""You are an expert workflow planner for a structured three-phase multi-agent system. You excel at creating sophisticated, multi-agent workflows that maximize quality and comprehensiveness.
+        system_prompt = f"""You are an expert workflow planner for a structured three-phase multi-agent system. You excel at creating sophisticated, multi-agent workflows that maximize quality and accuracy.
 
 QUERY: {query}
 CONTEXT: {truncated_context if truncated_context else "No context provided"}
 CONTEXT LENGTH: {context_length}
 
 AVAILABLE AGENTS:
-- predictor: Simple base agent that directly responds to queries (fastest, factual responses)
+- predictor: Directly responds to queries (use for: calculations, lookups)
 - summarizer: Summarizes context to make it more clearly answer the query (for long/noisy context, DO NOT use for factual, computational context)
-- aggregator: Analyzes multiple messages and synthesizes consistent information from them (complex, creative responses)
-- debater: Generates responses from multiple perspectives for complex/controversial topics
-- refiner: Reviews and improves existing responses
+- aggregator: Synthesizes multiple agent outputs
+- debater: Multi-perspective analysis (use for: ambiguous topics, multi-hop reasoning)
+- refiner: Improves response accuracy
 
 WORKFLOW PLANNING PHILOSOPHY:
 You PREFER complex, multi-agent workflows over simple single-agent solutions. Even seemingly straightforward queries often benefit from multiple perspectives and comprehensive analysis when considered alongside their context.
@@ -167,9 +166,9 @@ PHASE 1 - BEGINNING (Context Preparation):
 
 PHASE 2 - MIDDLE (Core Analysis):
 - ONLY "predictor" and/or "debater" allowed
-- Use multiple "predictor" for discrete reasoning, factual verification, computational problems, direct information extraction
+- Use multiple "predictor" for discrete reasoning, factual verification, computational problems
 - Use multiple "debater" for multi-hop reasoning, complex inference chains, ambiguous contexts, subjective analysis
-- STRONGLY PREFER multiple agents (2-4) for comprehensive analysis
+- STRONGLY PREFER multiple agents (3-4) for comprehensive analysis
 - Single agent only for trivial factual lookups with zero ambiguity
 
 PHASE 3 - END (Synthesis & Quality):
@@ -182,14 +181,20 @@ REQUIRED REASONING FORMAT:
 
 REASONING:
 1. CONTEXT-QUERY INTERACTION: [Analyze how context complexity affects query difficulty - look for multi-hop reasoning, entity disambiguation, temporal relationships, cross-referencing needs]
-2. COMPLEXITY INDICATORS: [Identify specific complexity factors. A query is COMPLEX if it requires: Connecting multiple pieces of information, Making inferences beyond what's directly stated, Handling ambiguous or contradictory details]
-3. MULTI-AGENT JUSTIFICATION: [Explain why multiple agents will provide better coverage than single agent - different reasoning approaches, error-checking, comprehensive analysis]
-4. AGENT SELECTION STRATEGY: [Justify specific agent choices - why predictor vs debater, how many, what unique value each brings]
-5. SYNTHESIS REQUIREMENTS: [Explain aggregation needs and quality improvement through refinement]
-6. WORKFLOW COMPLEXITY DECISION: [Justify why this deserves a complex workflow over simple alternatives]
+2. MULTI-AGENT JUSTIFICATION: [If query is complex, explain why multiple agents will provide better coverage. Default to 3-4 agents for complex queries.]
+3. SUMMARIZER OR NOT?
+   - YES: Context is noisy, lengthy, contains irrelevant information
+   - NO: Context is clean, concise, or computational/factual
+4. PREDICTOR OR DEBATER OR BOTH?
+   - PREDICTOR: fact retrieval, calculations, discrete reasoning
+   - DEBATER: multi-hop reasoning, connecting multiple facts
+5. AGGREGATOR: Required if middle phase has multiple agents (synthesizes all outputs)
+6. REFINER OR NOT?
+   - YES: Response requires verification, quality improvement, or hallucination risk (computations, multi-step inferences, synthesized information)
+   - NO: Direct retrieval from clear context with low hallucination risk
 
 BEGINNING: [List of agents for phase 1 - avoid "summarizer" for computational problems]
-MIDDLE: [List of agents for phase 2 - STRONGLY prefer 2-4 agents]
+MIDDLE: [List of agents for phase 2 - STRONGLY prefer 3-4 agents]
 END: [List of agents for phase 3]
 
 AVOID simple single-agent patterns unless the query is a trivial factual lookup with zero ambiguity or inference required."""
@@ -214,6 +219,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             "end": response.end
         }
         
+        state["planner_reasoning"] = response.reasoning
         state["workflow_plan"] = workflow_plan
         
         return state
@@ -550,6 +556,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             "context": context,
             "messages": [],
             "workflow_plan": {},
+            "planner_reasoning": "",
             "custom_prompts": {},
         }
         
@@ -558,7 +565,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
 
         return {
             "content": response["messages"][-1].content if response["messages"] else "No response generated",
-            "workflow_plan": response["workflow_plan"]
+            "workflow_plan": response["workflow_plan"],
+            "planner_reasoning": response["planner_reasoning"],
+            "custom_prompts": response["custom_prompts"]
         }
 
     def save_workflow_image(self):
@@ -570,10 +579,12 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
 
 
 async def main():
-    planner_llm = ChatOllama(model="mistral:7b", temperature=0.7)
-    high_temp_llm = ChatOllama(model="mistral:7b", temperature=0.8)
-    medium_temp_llm = ChatOllama(model="mistral:7b", temperature=0.5)
-    low_temp_llm = ChatOllama(model="mistral:7b", temperature=0.2)
+    load_dotenv(find_dotenv())
+
+    planner_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.7)
+    high_temp_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.8)
+    medium_temp_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.5)
+    low_temp_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
 
     orchestration_agent = OrchestrationAgent(
         planner_llm=planner_llm,

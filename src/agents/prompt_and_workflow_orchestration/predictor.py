@@ -31,7 +31,7 @@ class Predictor:
 
 Context: {context if context else "No specific context provided"}
 
-Provide a single, concise final answer (1-5 words)"""
+Provide a single, concise final answer, no explanations. There is always sufficient information."""
         
         messages = [
             SystemMessage(content=system_prompt),

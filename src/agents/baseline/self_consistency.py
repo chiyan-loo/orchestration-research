@@ -7,6 +7,8 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from dotenv import find_dotenv, load_dotenv
 import os
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 
 class AgentState(TypedDict):
@@ -29,11 +31,14 @@ class SelfConsistency:
 
     def _build_graph(self):
         workflow = StateGraph(AgentState)
+
         workflow.add_node("predictors", self._predictors_step)
         workflow.add_node("aggregate", self._aggregate_step)
+
         workflow.add_edge(START, "predictors")
         workflow.add_edge("predictors", "aggregate")
         workflow.add_edge("aggregate", END)
+        
         return workflow.compile()
     
     async def _run_predictor(self, query: str, context: str, llm: BaseLanguageModel) -> str:
@@ -104,8 +109,8 @@ if __name__ == "__main__":
         #     temperature=0.8
         # )
 
-        predictor_llm = ChatOllama(model="mistral:7b", temperature=0.8)
-        aggregator_llm = ChatOllama(model="mistral:7b", temperature=0.2)
+        predictor_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.8)
+        aggregator_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
         
         workflow = SelfConsistency(
             predictor_llm=predictor_llm,
@@ -113,8 +118,8 @@ if __name__ == "__main__":
             num_predictors=3
         )
         
-        query = "What is the capital of France?"
-        context = "France is a country in Western Europe."
+        query = "How many field goals were scored in the first quarter?"
+        context = "To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007"
         
         final_answer = await workflow.generate_response(query, context)
         print("FINAL ANSWER:", final_answer["content"])

@@ -48,7 +48,7 @@ class Debater:
         system_prompt = state.get("advocate_system_prompt") or "You are an Advocate. Present strong supporting arguments and evidence."
         
         if state["round"] == 1:
-            prompt = f"""Present your approach to addressing this query using the available context.
+            prompt = f"""Present your approach to addressing this query using the available context. There is always sufficient context.
             
             Context: {state['context']}
             Query: {state['query']}
@@ -76,7 +76,7 @@ class Debater:
         system_prompt = state.get("critic_system_prompt") or "You are a Critic. Identify potential issues and explore alternative approaches."
         
         if state["round"] == 1:
-            prompt = f"""Analyze this query from your perspective using the available context.
+            prompt = f"""Analyze this query from your perspective using the available context. There is always sufficient context.
             
             Context: {state['context']}
             Query: {state['query']}
@@ -140,7 +140,7 @@ class Debater:
             if i < len(state["critic_messages"]):
                 debate_content += f"Critic: {state['critic_messages'][i]}\n\n"
         
-        prompt = f"""Synthesize this multi-agent debate into a concise final answer (1-5 words).
+        prompt = f"""Synthesize this multi-agent debate into a single, short, concise final answer, no explanations.
 
 Query: {state['query']}
 
