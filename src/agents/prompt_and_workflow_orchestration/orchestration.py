@@ -9,6 +9,7 @@ from pydantic import BaseModel, field_validator, Field, create_model
 import os
 import asyncio
 from dotenv import load_dotenv, find_dotenv
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from .refiner import Refiner
 from .aggregator import Aggregator
@@ -17,7 +18,7 @@ from .predictor import Predictor
 from .summarizer import Summarizer
 
 class WorkflowPlan(BaseModel):
-    reasoning: str = Field(description="Step-by-step thinking process")
+    reasoning: str = Field(description="Required step-by-step thinking process")
     beginning: List[str]
     middle: List[str] 
     end: List[str]
@@ -85,14 +86,15 @@ class AgentState(TypedDict):
     workflow_plan: Dict[str, List[str]]
     planner_reasoning: str
     custom_prompts: Dict[str, Union[str, Dict[str, str]]]
+    callback: UsageMetadataCallbackHandler  # Add callback to state
 
 class OrchestrationAgent():
     def __init__(self, 
                  planner_llm: BaseLanguageModel, 
                  high_temp_llm: BaseLanguageModel,
                  medium_temp_llm: BaseLanguageModel,
-                 low_temp_llm: BaseLanguageModel, 
-                 max_context_length: int = 4000):
+                 low_temp_llm: BaseLanguageModel,
+                 max_context_length: int = 5000):
 
         self.max_context_length = max_context_length
         self.llm = planner_llm
@@ -131,12 +133,13 @@ class OrchestrationAgent():
         """
         query = state.get("query", "")
         context = state.get("context", "")
+        callback = state.get("callback")
 
         truncated_context = f"{context[:self.max_context_length]}..." if len(context) > self.max_context_length else context
 
         context_length = f"{len(context)}"
         if len(context) > self.max_context_length:
-            context_length += " (LONG - needs summarization)"
+            context_length += " (LONG - likely needs summarization)"
         elif len(context) > self.max_context_length // 2:
             context_length += " (MODERATE - likely does not need summarization)"
         else:
@@ -206,7 +209,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             HumanMessage(content="Create a structured three-phase workflow plan for this query.")
         ]
         
-        response = await structured_llm.ainvoke(planner_messages)
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = await structured_llm.ainvoke(planner_messages, config=config)
         
         print(f"Planner reasoning: {response.reasoning}")
         print(f"Beginning phase: {response.beginning}")
@@ -231,6 +236,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         query = state.get("query", "")
         context = state.get("context", "")
         workflow_plan = state.get("workflow_plan", {})
+        callback = state.get("callback")
         
         # Get all unique agent types from the workflow plan
         all_agents = set()
@@ -334,7 +340,9 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             HumanMessage(content="Generate comprehensive optimized system prompts for each agent type in the workflow based on this specific query and context.")
         ]
         
-        response = await structured_llm.ainvoke(prompt_messages)
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = await structured_llm.ainvoke(prompt_messages, config=config)
         
         # Structure the custom prompts to handle the nested debater and refiner structures (excluding aggregator)
         custom_prompts = {}
@@ -373,6 +381,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         workflow_plan = state.get("workflow_plan", {})
         beginning_agents = workflow_plan.get("beginning", [])
         custom_prompts = state.get("custom_prompts", {})
+        callback = state.get("callback")
         
         print(f"Executing beginning phase with {len(beginning_agents)} agents: {beginning_agents}")
         
@@ -387,16 +396,18 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                 
                 # Wrap synchronous call in executor to make it async
                 loop = asyncio.get_event_loop()
-                refined_context = await loop.run_in_executor(
+                response = await loop.run_in_executor(
                     None,
-                    self.summarizer.generate_response,
-                    query,
-                    context,
-                    custom_prompt
+                    lambda: self.summarizer.generate_response(
+                        query=query,
+                        context=context,
+                        system_prompt=custom_prompt,
+                        callback=callback
+                    )
                 )
                 
-                print(f"  Summarizer refined context: {refined_context[:250]}...")
-                state["context"] = refined_context
+                print(f"  Summarizer refined context: {response['content'][:250]}...")
+                state["context"] = response["content"]
         
         return state
 
@@ -410,6 +421,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         query = state.get("query", "")
         context = state.get("context", "")
         messages = state.get("messages", [])
+        callback = state.get("callback")
         
         print(f"Executing middle phase with {len(middle_agents)} agents IN PARALLEL: {middle_agents}")
         
@@ -422,13 +434,16 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                self.predictor.generate_response,
-                query,
-                context,
-                custom_prompt
+                lambda: self.predictor.generate_response(
+                    query=query,
+                    context=context,
+                    system_prompt=custom_prompt,
+                    callback=callback
+                )
             )
-            print(f"  Predictor result: {response[:250]}...")
-            return ("predictor", response)
+
+            print(f"  Predictor result: {response['content'][:250]}...")
+            return ("predictor", response["content"])
         
         async def run_debater():
             debater_prompts = custom_prompts.get("debater", {})
@@ -446,11 +461,12 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                     query=query,
                     context=context,
                     advocate_system_prompt=advocate_prompt,
-                    critic_system_prompt=critic_prompt
+                    critic_system_prompt=critic_prompt,
+                    callback=callback
                 )
             )
-            print(f"  Debater result: {response[:250]}...")
-            return ("debater", response)
+            print(f"  Debater result: {response['content'][:250]}...")
+            return ("debater", response["content"])
         
         # Build list of tasks to run in parallel
         tasks = []
@@ -480,12 +496,10 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
         query = state.get("query", "")
         context = state.get("context", "")
         messages = state.get("messages", [])
+        callback = state.get("callback")
         
         print(f"Executing end phase with {len(end_agents)} agents: {end_agents}")
         
-        # End phase must be sequential because:
-        # 1. Aggregator must process all middle messages first
-        # 2. Refiner needs the aggregated (or last) response to refine
         for agent_name in end_agents:
             print(f"  Running {agent_name} with custom prompt(s)")
             
@@ -502,13 +516,16 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                 loop = asyncio.get_event_loop()
                 aggregated_response = await loop.run_in_executor(
                     None,
-                    self.aggregator.aggregate_messages,
-                    message_contents,
-                    query
+                    lambda: self.aggregator.aggregate_messages(
+                        messages=message_contents,
+                        query=query,
+                        callback=callback
+                    )
                 )
-                
-                messages.append(AIMessage(content=aggregated_response))
-                print(f"  Aggregator result: {aggregated_response[:250]}...")
+
+                messages.append(AIMessage(content=aggregated_response["content"]))
+
+                print(f"  Aggregator result: {aggregated_response['content'][:250]}...")
                 
             elif agent_name == "refiner":
                 # Get the current response (last AI message)
@@ -535,22 +552,24 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
                         current_response=current_response,
                         context=context,
                         critic_system_prompt=critic_prompt,
-                        editor_system_prompt=editor_prompt
+                        editor_system_prompt=editor_prompt,
+                        callback=callback
                     )
                 )
                 
-                messages.append(AIMessage(content=improved_response))
-                print(f"  Refiner result: {improved_response[:250]}...")
+                messages.append(AIMessage(content=improved_response["content"]))
+                
+                print(f"  Refiner result: {improved_response['content'][:250]}...")
         
         state["messages"] = messages
         return state
 
-    def generate_response(self, query: str, context: str):
+    def generate_response(self, query: str, context: str, callback: UsageMetadataCallbackHandler = None):
         """Synchronous version - creates new event loop"""
-        return asyncio.run(self.generate_response_async(query, context))
+        return asyncio.run(self.generate_response_async(query, context, callback))
 
-    async def generate_response_async(self, query: str, context: str):
-        """Fully async version of generate_response"""
+    async def generate_response_async(self, query: str, context: str, callback: UsageMetadataCallbackHandler = None):
+        """Fully async version of generate_response with optional callback parameter"""
         initial_state = {
             "query": query,
             "context": context,
@@ -558,6 +577,7 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             "workflow_plan": {},
             "planner_reasoning": "",
             "custom_prompts": {},
+            "callback": callback,
         }
         
         print(f"Starting three-phase async orchestration with custom prompts for query: {query}")
@@ -568,8 +588,6 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
             "workflow_plan": response["workflow_plan"],
             "planner_reasoning": response["planner_reasoning"],
             "custom_prompts": response["custom_prompts"],
-            "input_tokens": response.response_metadata.get("input_tokens", 0),
-            "output_tokens": response.response_metadata.get("output_tokens", 0),
         }
 
     def save_workflow_image(self):
@@ -583,10 +601,12 @@ AVOID simple single-agent patterns unless the query is a trivial factual lookup 
 async def main():
     load_dotenv(find_dotenv())
 
-    planner_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.7)
-    high_temp_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.8)
-    medium_temp_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.5)
-    low_temp_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
+    MODEL_NAME = "gemini-2.0-flash"
+
+    planner_llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.7)
+    high_temp_llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.8)
+    medium_temp_llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.5)
+    low_temp_llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.2)
 
     orchestration_agent = OrchestrationAgent(
         planner_llm=planner_llm,
@@ -595,11 +615,16 @@ async def main():
         low_temp_llm=low_temp_llm,
     )
     
+    callback = UsageMetadataCallbackHandler()
+    
     response = await orchestration_agent.generate_response_async(
         query="How many field goals were scored in the first quarter?",
-        context="""To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007"""
+        context="""To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007""",
+        callback=callback
     )
     print(f"Response:\n{response}")
+    print(f"Input tokens: {callback.usage_metadata[MODEL_NAME]["input_tokens"]}")
+    print(f"Output tokens: {callback.usage_metadata[MODEL_NAME]["input_tokens"]}")
 
 
 if __name__ == "__main__":

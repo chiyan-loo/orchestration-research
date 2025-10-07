@@ -1,8 +1,9 @@
-from typing import TypedDict, List
+from typing import TypedDict, List, Dict
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from langchain_core.language_models.base import BaseLanguageModel
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 class DebateState(TypedDict):
     query: str
@@ -14,6 +15,7 @@ class DebateState(TypedDict):
     final_synthesis: str
     advocate_system_prompt: str
     critic_system_prompt: str
+    callback: UsageMetadataCallbackHandler
 
 
 class Debater:
@@ -44,6 +46,9 @@ class Debater:
         return workflow.compile()
     
     def _run_advocate(self, state: DebateState) -> str:
+        # Get callback from state
+        callback = state.get("callback")
+        
         # Use custom system prompt if provided, otherwise use default
         system_prompt = state.get("advocate_system_prompt") or "You are an Advocate. Present strong supporting arguments and evidence."
         
@@ -68,10 +73,16 @@ class Debater:
             HumanMessage(content=prompt)
         ]
         
-        response = self.advocate_llm.invoke(messages)
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = self.advocate_llm.invoke(messages, config=config)
+        
         return response.content.strip()
     
     def _run_critic(self, state: DebateState) -> str:
+        # Get callback from state
+        callback = state.get("callback")
+        
         # Use custom system prompt if provided, otherwise use default
         system_prompt = state.get("critic_system_prompt") or "You are a Critic. Identify potential issues and explore alternative approaches."
         
@@ -96,7 +107,10 @@ class Debater:
             HumanMessage(content=prompt)
         ]
         
-        response = self.critic_llm.invoke(messages)
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = self.critic_llm.invoke(messages, config=config)
+        
         return response.content.strip()
     
     def _get_recent_context(self, state: DebateState) -> str:
@@ -131,6 +145,8 @@ class Debater:
         return "end"
     
     def _synthesize_final(self, state: DebateState) -> DebateState:
+        # Get callback from state
+        callback = state.get("callback")
         
         # Compile all debate content
         debate_content = ""
@@ -153,22 +169,32 @@ Provide a balanced final answer that integrates consistent information from both
             HumanMessage(content=prompt)
         ]
         
-        response = self.synthesizer_llm.invoke(messages)
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = self.synthesizer_llm.invoke(messages, config=config)
+        
         state["final_synthesis"] = response.content.strip()
         
         return state
     
-    def generate_response(self, query: str, context: str = "", 
+    def generate_response(self, query: str, 
+                         context: str = "", 
                          advocate_system_prompt: str = "", 
-                         critic_system_prompt: str = "") -> str:
+                         critic_system_prompt: str = "",
+                         callback: UsageMetadataCallbackHandler = None) -> Dict:
         """
-        Generate response with optional custom system prompts for sub-agents
+        Generate response with optional custom system prompts for sub-agents and callback
         
         Args:
             query: The question or topic to analyze
             context: Additional context information
             advocate_system_prompt: Custom system prompt for advocate sub-agent
             critic_system_prompt: Custom system prompt for critic sub-agent
+            callback: Optional callback handler for tracking token usage
+            
+        Returns:
+            Dict containing:
+                - content: The final synthesized response
         """
         response = self.graph.invoke({
             "query": query,
@@ -179,15 +205,19 @@ Provide a balanced final answer that integrates consistent information from both
             "critic_messages": [],
             "final_synthesis": "",
             "advocate_system_prompt": advocate_system_prompt,
-            "critic_system_prompt": critic_system_prompt
+            "critic_system_prompt": critic_system_prompt,
+            "callback": callback,  # Pass callback in state
         })
         
-        return response["final_synthesis"]
+        return {
+            "content": response["final_synthesis"],
+        }
 
 
 if __name__ == "__main__":
     aggregator_llm = ChatOllama(model="mistral:7b", temperature=0.5)
     predictor_llm = ChatOllama(model="mistral:7b", temperature=0.5)
+    callback = UsageMetadataCallbackHandler()
 
     debater = Debater(synthesizer_llm=aggregator_llm, predictor_llm=predictor_llm, max_rounds=2)
     
@@ -202,10 +232,8 @@ if __name__ == "__main__":
         query=query, 
         context=context,
         advocate_system_prompt=advocate_prompt,
-        critic_system_prompt=critic_prompt
+        critic_system_prompt=critic_prompt,
+        callback=callback
     )
-    print(f"\n=== FINAL SYNTHESIS ===\n{response}")
-    
-    # Example without custom prompts (uses defaults)
-    response_default = debater.generate_response(query=query, context=context)
-    print(f"\n=== DEFAULT PROMPTS SYNTHESIS ===\n{response_default}")
+    print(f"\n=== FINAL SYNTHESIS ===\n{response['content']}")
+    print(f"Token Usage: {callback.usage_metadata}")

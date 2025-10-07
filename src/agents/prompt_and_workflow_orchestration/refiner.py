@@ -1,9 +1,10 @@
-from typing import TypedDict
+from typing import TypedDict, Dict
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
 from langchain_core.language_models.base import BaseLanguageModel
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 class EditorResponseSchema(BaseModel):
     """Pydantic schema for structured response with reasoning and answer"""
@@ -18,6 +19,7 @@ class RefinerState(TypedDict):
     improved_response: str
     critic_system_prompt: str
     editor_system_prompt: str
+    callback: UsageMetadataCallbackHandler
 
 class Refiner:
     def __init__(self, llm: BaseLanguageModel):
@@ -43,6 +45,7 @@ class Refiner:
         current_response = state["current_response"]
         context = state["context"]
         system_prompt = state["critic_system_prompt"]
+        callback = state.get("callback")
 
         critique_prompt = f"""Thoroughly critique the current response given the query and context. Provide a thorough list potential flaws of the current response and make suggestions. Value shortness and concisenesss as a criteria for the original response, but make the critique itself thorough and extensive. The original response should have no extra context, no explanations, no clarifications.
         Be ruthless in your critique.
@@ -56,7 +59,10 @@ Context: {context}"""
             SystemMessage(content=system_prompt),
             HumanMessage(content=critique_prompt)
         ]
-        response = self.llm.invoke(messages)
+        
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = self.llm.invoke(messages, config=config)
 
         print(response.content)
 
@@ -71,6 +77,7 @@ Context: {context}"""
         context = state["context"]
         critique = state["critique"]
         system_prompt = state["editor_system_prompt"]
+        callback = state.get("callback")
         
         improvement_prompt = f"""
 Query: {query}
@@ -88,7 +95,10 @@ Create a more accurate single, short, concise final answer by addressing the cri
             SystemMessage(content=system_prompt),
             HumanMessage(content=improvement_prompt)
         ]
-        response = structured_llm.invoke(messages)
+        
+        # Invoke with callback if provided
+        config = {"callbacks": [callback]} if callback else {}
+        response = structured_llm.invoke(messages, config=config)
 
         print(response)
         state["improved_response"] = response.answer
@@ -96,9 +106,22 @@ Create a more accurate single, short, concise final answer by addressing the cri
         return state
 
     def generate_response(self, query: str, current_response: str, context: str, 
-                         critic_system_prompt: str, editor_system_prompt: str) -> str:
+                         critic_system_prompt: str, editor_system_prompt: str,
+                         callback: UsageMetadataCallbackHandler = None) -> Dict:
         """
         Main method to generate an improved response through critique and improvement
+        
+        Args:
+            query: The question being asked
+            current_response: The response to be improved
+            context: Additional context information
+            critic_system_prompt: Custom system prompt for critic sub-agent
+            editor_system_prompt: Custom system prompt for editor sub-agent
+            callback: Optional callback handler for tracking token usage
+        
+        Returns:
+            Dict containing:
+                - content: The improved response
         """
         result = self.graph.invoke({
             "query": query,
@@ -107,10 +130,13 @@ Create a more accurate single, short, concise final answer by addressing the cri
             "critique": "",
             "improved_response": "",
             "critic_system_prompt": critic_system_prompt,
-            "editor_system_prompt": editor_system_prompt
+            "editor_system_prompt": editor_system_prompt,
+            "callback": callback,  # Pass callback in state
         })
         
-        return result["improved_response"]
+        return {
+            "content": result["improved_response"],
+        }
     
     def save_workflow_image(self):
         """Save workflow as PNG image"""
@@ -122,6 +148,7 @@ Create a more accurate single, short, concise final answer by addressing the cri
 
 if __name__ == "__main__":
     llm = ChatOllama(model="mistral:7b", temperature=0.3)
+    callback = UsageMetadataCallbackHandler()
 
     refiner = Refiner(llm=llm)
     
@@ -145,9 +172,11 @@ if __name__ == "__main__":
     
     Show your editing reasoning before providing the final improved response."""
     
-    improved_response = refiner.generate_response(
+    result = refiner.generate_response(
         query, current_response, context, 
         critic_system_prompt=custom_critic,
-        editor_system_prompt=custom_editor
+        editor_system_prompt=custom_editor,
+        callback=callback
     )
-    print(f"Improved Response: {improved_response}")
+    print(f"Improved Response: {result['content']}")
+    print(f"Token Usage: {callback.usage_metadata}")

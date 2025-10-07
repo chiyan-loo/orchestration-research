@@ -3,6 +3,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from pydantic import BaseModel, Field
 from langchain_ollama import ChatOllama
 from langchain_core.language_models.base import BaseLanguageModel
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 class ResponseSchema(BaseModel):
     """Pydantic schema for structured response with reasoning and answer"""
@@ -13,7 +14,7 @@ class Summarizer:
     def __init__(self, llm: BaseLanguageModel):
         self.llm = llm.with_structured_output(ResponseSchema)
 
-    def generate_response(self, query: str, context: str, system_prompt: str) -> str:
+    def generate_response(self, query: str, context: str, system_prompt: str, callback: UsageMetadataCallbackHandler) -> dict:
         """
         Summarizes and refines the context to make it more directly answer the query.
         Takes raw context and makes it more focused and relevant to the specific question.
@@ -30,5 +31,9 @@ Original Context: {context}
             HumanMessage(content=human_prompt)
         ]
         
-        response = self.llm.invoke(messages)
-        return response.answer.strip()
+        # Invoke with callback
+        response = self.llm.invoke(messages, config={"callbacks": [callback]})
+
+        return {
+            "content": response.answer.strip(),
+        }

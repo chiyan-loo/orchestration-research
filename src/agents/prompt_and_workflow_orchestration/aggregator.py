@@ -2,13 +2,14 @@ from typing import List
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langchain_core.language_models.base import BaseLanguageModel
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 
 class Aggregator:
     def __init__(self, llm: BaseLanguageModel):
         self.llm = llm
     
-    def aggregate_messages(self, messages: List[str], query: str) -> str:
+    def aggregate_messages(self, messages: List[str], query: str, callback: UsageMetadataCallbackHandler) -> dict:
         """
         Aggregate multiple messages and generate a singular response based on consistent information
         
@@ -20,7 +21,7 @@ class Aggregator:
             A single aggregated response
         """
         if not messages:
-            return "No messages provided for aggregation."
+            return {"error": "No messages provided for aggregation."}
         
         # Prepare messages for analysis
         numbered_messages = "\n".join([
@@ -52,13 +53,18 @@ Provide your aggregated response:"""
             HumanMessage(content=aggregation_prompt)
         ]
         
-        response = self.llm.invoke(messages_for_llm)
-        return response.content.strip()
+        # Invoke with callback
+        response = self.llm.invoke(messages_for_llm, config={"callbacks": [callback]})
+        
+        return {
+            "content": response.content.strip(),
+        }
 
 
 # Example usage
 if __name__ == "__main__":
     llm = ChatOllama(model="mistral:7b", temperature=0.3)
+    callback = UsageMetadataCallbackHandler()
 
     aggregator = Aggregator(llm=llm)
     
@@ -70,5 +76,6 @@ if __name__ == "__main__":
     ]
     
     query = "What is the population of Paris?"
-    result = aggregator.aggregate_messages(sample_messages, query)
+    result = aggregator.aggregate_messages(sample_messages, query, callback=callback)
     print(f"Result: {result}")
+    print(f"Callback: {callback}")
