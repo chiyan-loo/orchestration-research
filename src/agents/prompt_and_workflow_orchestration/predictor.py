@@ -47,11 +47,10 @@ Provide a single, concise final answer, no explanations. There is always suffici
         try:
             # Try structured output first
             response = self.llm.invoke(messages, config={"callbacks": [callback]})
-            print(f"Full reasoning response: {response}")
+            print(f"response: {response.answer}")
             
             return {
                 "content": response.answer,
-                "reasoning": response.reasoning,
                 "structured": True
             }
         
@@ -66,7 +65,6 @@ Provide a single, concise final answer, no explanations. There is always suffici
             
             return {
                 "content": content,
-                "reasoning": None,
                 "structured": False
             }
 
