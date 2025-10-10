@@ -1,20 +1,22 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
-from typing import Dict
+from typing import Dict, Optional
 from langchain_core.language_models.base import BaseLanguageModel
 from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain_core.exceptions import OutputParserException
 
 
 class ResponseSchema(BaseModel):
     """Pydantic schema for structured response with reasoning and answer"""
-    reasoning: str = Field(description="Step-by-step thinking process")
+    reasoning: str = Field(description="Required step-by-step thinking process")
     answer: str = Field(description="Final, concise and direct answer to the query.")
 
 
 class Predictor:
     def __init__(self, llm: BaseLanguageModel):
         self.llm = llm.with_structured_output(ResponseSchema)
+        self.llm_unstructured = llm  # Keep unstructured version as fallback
     
     def generate_response(self, query: str, context: str, system_prompt: str, callback: UsageMetadataCallbackHandler) -> Dict:
         """
@@ -24,10 +26,12 @@ class Predictor:
             query: The question or prompt to respond to
             context: Optional context information
             system_prompt: Custom system prompt for the predictor
+            callback: Callback handler for usage metadata
             
         Returns:
             Dict containing:
                 - content: The final answer
+                - structured: Boolean indicating if structured output succeeded
         """
         full_system_prompt = f"""{system_prompt}
 
@@ -40,14 +44,31 @@ Provide a single, concise final answer, no explanations. There is always suffici
             HumanMessage(content=query)
         ]
         
-        # Invoke with callback
-        response = self.llm.invoke(messages, config={"callbacks": [callback]})
+        try:
+            # Try structured output first
+            response = self.llm.invoke(messages, config={"callbacks": [callback]})
+            print(f"Full reasoning response: {response}")
+            
+            return {
+                "content": response.answer,
+                "reasoning": response.reasoning,
+                "structured": True
+            }
         
-        print(f"Full reasoning response: {response}")
-        
-        return {
-            "content": response.answer,
-        }
+        except (OutputParserException, ValueError, AttributeError) as e:
+            print(f"Structured output failed: {e}. Falling back to unstructured output.")
+            
+            # Fallback to unstructured output
+            response = self.llm_unstructured.invoke(messages, config={"callbacks": [callback]})
+            
+            # Extract content from unstructured response
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            return {
+                "content": content,
+                "reasoning": None,
+                "structured": False
+            }
 
 
 # Example usage

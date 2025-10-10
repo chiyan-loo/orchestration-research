@@ -1,10 +1,11 @@
-from typing import TypedDict, Dict
+from typing import TypedDict, Dict, Optional
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
 from langchain_core.language_models.base import BaseLanguageModel
 from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain_core.exceptions import OutputParserException
 
 class EditorResponseSchema(BaseModel):
     """Pydantic schema for structured response with reasoning and answer"""
@@ -20,6 +21,7 @@ class RefinerState(TypedDict):
     critic_system_prompt: str
     editor_system_prompt: str
     callback: UsageMetadataCallbackHandler
+    structured: bool  # Track if structured output succeeded
 
 class Refiner:
     def __init__(self, llm: BaseLanguageModel):
@@ -90,7 +92,6 @@ Critique: {critique}
 
 Create a more accurate single, short, concise final answer by addressing the critiques of the original response. Only return the final answer, no explanations, no clarifications."""
 
-        structured_llm = self.llm.with_structured_output(EditorResponseSchema)
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=improvement_prompt)
@@ -98,10 +99,27 @@ Create a more accurate single, short, concise final answer by addressing the cri
         
         # Invoke with callback if provided
         config = {"callbacks": [callback]} if callback else {}
-        response = structured_llm.invoke(messages, config=config)
-
-        print(response)
-        state["improved_response"] = response.answer
+        
+        try:
+            # Try structured output first
+            structured_llm = self.llm.with_structured_output(EditorResponseSchema)
+            response = structured_llm.invoke(messages, config=config)
+            
+            print(f"Structured response: {response}")
+            state["improved_response"] = response.answer
+            state["structured"] = True
+            
+        except (OutputParserException, ValueError, AttributeError) as e:
+            print(f"Structured output failed in _improve: {e}. Falling back to unstructured output.")
+            
+            # Fallback to unstructured output
+            response = self.llm.invoke(messages, config=config)
+            
+            # Extract content from unstructured response
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            state["improved_response"] = content
+            state["structured"] = False
         
         return state
 
@@ -122,6 +140,7 @@ Create a more accurate single, short, concise final answer by addressing the cri
         Returns:
             Dict containing:
                 - content: The improved response
+                - structured: Whether structured output succeeded
         """
         result = self.graph.invoke({
             "query": query,
@@ -132,10 +151,12 @@ Create a more accurate single, short, concise final answer by addressing the cri
             "critic_system_prompt": critic_system_prompt,
             "editor_system_prompt": editor_system_prompt,
             "callback": callback,  # Pass callback in state
+            "structured": True,  # Initialize as True
         })
         
         return {
             "content": result["improved_response"],
+            "structured": result.get("structured", False),
         }
     
     def save_workflow_image(self):
@@ -179,4 +200,5 @@ if __name__ == "__main__":
         callback=callback
     )
     print(f"Improved Response: {result['content']}")
+    print(f"Structured output succeeded: {result['structured']}")
     print(f"Token Usage: {callback.usage_metadata}")
